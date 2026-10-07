@@ -238,7 +238,7 @@ def _trim_galaxy_interlopers(
         logger.debug(f"{n_stars_lost} star particles trimmed when deferring to subhalo finder assignments.")
         logger.debug(f"{len(galaxies_to_trim)} galaxies trimmed.")
 
-    if mingas > 0:
+    if mingas > 0 and "gas" in available_baryonic_ptypes:
         # now we need to trim galaxies which fell below mingas
         gas_offsets, gas_idx = galaxies.get_particle_csr(ptype="gas")
         original_gas_counts = np.diff(gas_offsets)  # for diagnostic
