@@ -33,11 +33,14 @@ class FOFHaloSource(HaloSource):
     the halo of their nearest DM particle. FOF groups carry no subhalo information.
     """
 
-    def __init__(self, reader: SnapshotReader, b: float, min_members: int) -> None:
+    def __init__(
+        self, reader: SnapshotReader, b: float, min_members: int, attach_ptypes: list[str] | None = None
+    ) -> None:
 
         super().__init__(reader=reader)
         self.b = b
         self.min_members = min_members
+        self.attach_ptypes = attach_ptypes  # baryonic ptypes to attach to haloes; None attaches all
 
     def read_halo_ids(self, ptypes: list[str]) -> HaloAssignments:
         """
@@ -54,7 +57,9 @@ class FOFHaloSource(HaloSource):
         dm_pos = self.reader.read_full_dataset(ptype="dm", dataset="pos")
         t_read_dm = perf_counter() - t_start
 
-        baryon_pos = _LazyPositions(reader=self.reader, ptypes=[pt for pt in ptypes if pt != "dm"])
+        baryonic = [pt for pt in ptypes if pt != "dm"]
+        attached = baryonic if self.attach_ptypes is None else [pt for pt in baryonic if pt in self.attach_ptypes]
+        baryon_pos = _LazyPositions(reader=self.reader, ptypes=attached)
         timings: dict[str, float] = {}
         halo_ids = find_fof_haloes(
             dm_pos=dm_pos,
@@ -65,6 +70,11 @@ class FOFHaloSource(HaloSource):
             timings=timings,
         )
         del dm_pos
+
+        for ptype in baryonic:
+            if ptype not in attached:
+                logger.info(f"FOF: {ptype} not in halo_attach_ptypes, so given no halo.")
+                halo_ids[ptype] = np.full(self.reader.particle_counts[ptype], -1, dtype=np.int64)
 
         # baryon positions are read lazily during attachment, so separate out the read time
         timings["attaching baryons"] -= baryon_pos.read_time

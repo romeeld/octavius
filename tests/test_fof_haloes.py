@@ -182,3 +182,38 @@ def test_pipeline_runs_with_fof_haloes(without_mpi: bool, tmp_path: Path, monkey
         assert len(catalogue["halo_data"]["properties/core/n_dm"]) == 3
         validate_halo_membership(f=catalogue)
         validate_group_counts(f=catalogue, group_data="halo_data")
+
+
+def test_fof_source_only_attaches_listed_ptypes(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_simba_snapshot(path=snapshot_path)
+
+    config = OctaviusConfig.from_yaml(
+        config_path=CONFIG_PATH,
+        simulation_type="SIMBA",
+        snapshot_path=snapshot_path,
+        output_dir=tmp_path,
+        cores_per_rank=1,
+        halo_id_source="FOF",
+        photometry_table_path=None,
+        min_dm_per_halo=10,
+        halo_attach_ptypes=["star"],
+    )
+    reader = build_reader(snapshot_path=snapshot_path, constants=OctaviusConstants(), config=config)
+    halo_ids = build_halo_source(config=config, reader=reader).read_halo_ids(ptypes=reader.available_ptypes).field_ids
+
+    assert np.any(halo_ids["star"] >= 0)
+    for ptype in ("gas", "bh"):
+        assert len(halo_ids[ptype]) == reader.particle_counts[ptype]
+        assert np.all(halo_ids[ptype] == -1)
+
+
+def test_config_rejects_unknown_attach_ptypes(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="halo_attach_ptypes"):
+        OctaviusConfig.from_yaml(
+            config_path=CONFIG_PATH,
+            snapshot_path=tmp_path / "snapshot.hdf5",
+            output_dir=tmp_path,
+            photometry_table_path=None,
+            halo_attach_ptypes=["gas", "dm"],
+        )

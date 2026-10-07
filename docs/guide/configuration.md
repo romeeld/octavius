@@ -105,6 +105,8 @@ Only used when `halo_id_source` is `FOF`. Haloes are found with a periodic 3D fr
 
 `halo_b`: the DM linking length as a fraction of the mean DM interparticle separation (default: `0.2`).
 
+`halo_attach_ptypes`: which baryonic particle types (`gas`, `star`, `bh`) are attached to the halo of their nearest DM particle. Unlisted types are given no halo, so they will be absent from halo properties and galaxy finding; e.g. leaving out `star` means no galaxies are found (default: all baryonic types).
+
 ## Aggregate Property Parameters
 
 `radial_quantiles`: a dictionary of quantiles (keyed by name) for enclosed mass radial profiles (default: `{"r20": 0.2, "half_mass": 0.5, "r80": 0.8}`).
