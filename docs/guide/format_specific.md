@@ -31,6 +31,12 @@ Subhaloes can be identified with the `depth` column in `halo_data`: the column i
 
 - The pipeline has currently only been tested on SWIFT-KIARA snapshots with associated HBT-HERONS catalogues.
 
+### FOF
+
+- Halo finding runs on rank 0 before particles are distributed, so rank 0 must be able to hold every particle's position (plus roughly 65 bytes per DM particle of working memory). It uses `cores_per_rank` threads.
+
+- HaloIDs are ordered by descending DM membership, so halo 0 is the largest.
+
 ### SUBFIND
 
 - The pipeline will assume the particles in the original snapshot have been re-ordered according to the SUBFIND catalogue assignments.

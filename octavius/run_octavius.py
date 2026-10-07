@@ -501,7 +501,7 @@ def main() -> None:
             raise ValueError("Please provide a snapshot path.")
         if config.output_dir is None:
             raise ValueError("Please provide an output directory path.")
-        if config.halo_id_source != "SNAPSHOT" and config.halo_catalogue_path is None:
+        if config.halo_id_source not in ("SNAPSHOT", "FOF") and config.halo_catalogue_path is None:
             raise ValueError(
                 f"{config.halo_id_source} also requires a catalogue containing ID assignments to be specified in 'halo_catalogue_path'."
             )

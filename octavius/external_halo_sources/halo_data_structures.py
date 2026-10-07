@@ -76,6 +76,12 @@ def build_halo_source(config: OctaviusConfig, reader: SnapshotReader) -> HaloSou
         logger.info("Using snapshot haloes.")
         return SnapshotHaloSource(reader=reader)
 
+    elif id_source == "FOF":
+        from .fof import FOFHaloSource
+
+        logger.info("Using built-in FOF haloes.")
+        return FOFHaloSource(reader=reader, b=config.halo_b, min_members=config.min_dm_per_halo)
+
     elif id_source == "AHF":
         from .ahf import AHFHaloSource  # I had to stick this in here to avoid a circular import
 
