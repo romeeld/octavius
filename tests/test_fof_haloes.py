@@ -148,7 +148,11 @@ def test_fof_source_recovers_snapshot_haloes(sim_type: str, tmp_path: Path) -> N
         assert np.sum(fof.field_ids[ptype][~bound] >= 0) <= 0.05 * np.sum(~bound)
 
 
-def test_pipeline_runs_with_fof_haloes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("without_mpi", [False, True])
+def test_pipeline_runs_with_fof_haloes(without_mpi: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    if without_mpi:  # exercises the serial path taken when mpi4py is not installed
+        monkeypatch.setattr("octavius.run_octavius.get_mpi_communicator", lambda: None)
+
     snapshot_path = tmp_path / "snapshot.hdf5"
     generate_simba_snapshot(path=snapshot_path)
 
