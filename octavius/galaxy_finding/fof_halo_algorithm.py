@@ -461,12 +461,20 @@ def attach_to_nearest_dm(
     halo_ids = np.full(n_particles, -1, dtype=np.int64)
     linking_length_sq = linking_length**2
     cell_size_sq = (boxsize / n_cells_per_dim) ** 2
-    half_n = n_cells_per_dim // 2
-
     for i in prange(n_particles):
         cx = _periodic_cell_coordinate(positions[i, 0], boxsize, n_cells_per_dim)
         cy = _periodic_cell_coordinate(positions[i, 1], boxsize, n_cells_per_dim)
         cz = _periodic_cell_coordinate(positions[i, 2], boxsize, n_cells_per_dim)
+
+        # fast path: every DM particle in a cell shares a label, so if the particle's own cell holds DM (guaranteed
+        # within the linking length) and every cell that could hold a closer one agrees, that is the answer
+        label, is_uniform = _uniform_neighbour_label(
+            dm_labels, cell_offsets, unique_cells, row_offsets, cx, cy, cz, n_cells_per_dim, linking_length_sq,
+            cell_size_sq,
+        )
+        if is_uniform:
+            halo_ids[i] = label
+            continue
 
         best_dist_sq = linking_length_sq
         best_label = -1
@@ -483,12 +491,7 @@ def attach_to_nearest_dm(
                 k_lo, k_hi = _cells_in_row(unique_cells, row_offsets, row, z_lo, z_hi, n_cells_per_dim)
 
                 for kn in range(k_lo, k_hi):
-                    dz = unique_cells[kn] % n_cells_per_dim - cz
-                    if dz > half_n:
-                        dz -= n_cells_per_dim
-                    elif dz < -half_n:
-                        dz += n_cells_per_dim
-                    z_gap = max(abs(dz) - 1, 0)
+                    z_gap = _periodic_cell_gap(unique_cells[kn] % n_cells_per_dim, cz, n_cells_per_dim)
                     if (FULL_ROW_GAPS_SQ[r] + z_gap * z_gap) * cell_size_sq > best_dist_sq:
                         continue  # no particle in this cell can be closer
 
@@ -501,6 +504,61 @@ def attach_to_nearest_dm(
         halo_ids[i] = best_label
 
     return halo_ids
+
+
+@njit(cache=True)
+def _uniform_neighbour_label(
+    dm_labels: np.ndarray,
+    cell_offsets: np.ndarray,
+    unique_cells: np.ndarray,
+    row_offsets: np.ndarray,
+    cx: int,
+    cy: int,
+    cz: int,
+    n_cells_per_dim: int,
+    linking_length_sq: float,
+    cell_size_sq: float,
+) -> tuple[int, bool]:
+    """
+    Returns (label, True) if cell (cx, cy, cz) holds DM and every occupied cell within the linking length of it has the
+    same label; otherwise (-1, False), and the exact nearest-neighbour search is needed.
+    """
+    own_row = cx * n_cells_per_dim + cy
+    k_lo, k_hi = _cells_in_row(unique_cells, row_offsets, own_row, cz, cz, n_cells_per_dim)
+    if k_lo == k_hi:
+        return -1, False  # own cell empty, so there may be no DM within the linking length at all
+
+    label = dm_labels[cell_offsets[k_lo]]
+
+    for r in range(len(FULL_ROWS)):
+        if FULL_ROW_GAPS_SQ[r] * cell_size_sq > linking_length_sq:
+            break
+
+        row = ((cx + FULL_ROWS[r, 0]) % n_cells_per_dim) * n_cells_per_dim + (cy + FULL_ROWS[r, 1]) % n_cells_per_dim
+        z_lo_0, z_hi_0, z_lo_1, z_hi_1 = _wrapped_window(cz - STENCIL_REACH, cz + STENCIL_REACH, n_cells_per_dim)
+
+        for segment in range(2):
+            z_lo, z_hi = (z_lo_0, z_hi_0) if segment == 0 else (z_lo_1, z_hi_1)
+            k_lo, k_hi = _cells_in_row(unique_cells, row_offsets, row, z_lo, z_hi, n_cells_per_dim)
+
+            for kn in range(k_lo, k_hi):
+                z_gap = _periodic_cell_gap(unique_cells[kn] % n_cells_per_dim, cz, n_cells_per_dim)
+                if (FULL_ROW_GAPS_SQ[r] + z_gap * z_gap) * cell_size_sq > linking_length_sq:
+                    continue  # too far to hold a DM particle within the linking length
+                if dm_labels[cell_offsets[kn]] != label:
+                    return -1, False
+
+    return label, True
+
+
+@njit(cache=True)
+def _periodic_cell_gap(c: int, c_ref: int, n_cells_per_dim: int) -> int:
+    """
+    The number of whole cells separating cell coordinates c and c_ref along a periodic axis (0 if adjacent).
+    """
+    dc = abs(c - c_ref)
+    dc = min(dc, n_cells_per_dim - dc)
+    return max(dc - 1, 0)
 
 
 @njit(cache=True)
