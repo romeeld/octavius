@@ -37,13 +37,13 @@ The output catalogue will inherit the name of the snapshot prefixed with `octavi
 
 `simulation_type`: the format of the snapshot (`SIMBA` / `SWIFT-KIARA` / `SWIFT-EAGLE` / `SWIFT-COLIBRE` / `TNG`).
 
-`halo_id_source`: where the halo catalogue should be parsed from (`SNAPSHOT` / `AHF` / `HBT-HERONS` / `SUBFIND`).
+`halo_id_source`: where the halo catalogue should be parsed from (`SNAPSHOT` / `AHF` / `HBT-HERONS` / `SUBFIND` / `FOF`). `FOF` identifies haloes with the built-in friends-of-friends finder, for snapshots without halo assignments.
 
 `snapshot_path`: the filepath of the snapshot (can be overridden at runtime via command-line arguments).
 
 `output_dir`: the directory to which you would like outputs routed.
 
-`halo_catalogue_path`: the filepath of the halo catalogue (can be left blank if using snapshot IDs).
+`halo_catalogue_path`: the filepath of the halo catalogue (can be left blank if using snapshot IDs or `FOF`).
 
 `compress_catalogue`: whether to apply lossless GZIP compression to the catalogue (default: `True`).
 
@@ -98,6 +98,14 @@ Please note disabling a particle entirely may have unintended consequences: for 
 `gas_criterion`: the criterion under which gas is included in the FOF6D algorithm. The algorithm will always apply a density threshold (`DENSE_ONLY`): this parameter lets you apply additional thresholds. `STARFORMING` only includes gas which has $\mathrm{SFR} > 0$; `COLD` only includes gas below the specified `T_lim`; `COLD_OR_STARFORMING` is either/or. (default: `COLD_OR_STARFORMING`).
 
 `subhalo_override`: when using halo catalogues which include subhaloes, this will make the FOF6D algorithm abide by the substructure boundaries defined by the external finder. Please see the {ref}`halo catalogue section <subhalo-info>` for more information. (default: `False`). 
+
+## FOF Halo Parameters
+
+Only used when `halo_id_source` is `FOF`. Haloes are found with a periodic 3D friends-of-friends on the DM particles; gas, stars and black holes are then assigned to the halo of their nearest DM particle within the linking length. Haloes with fewer DM particles than `min_dm_per_halo` are discarded, and FOF haloes carry no subhalo information.
+
+`halo_b`: the DM linking length as a fraction of the mean DM interparticle separation (default: `0.2`).
+
+`halo_attach_ptypes`: which baryonic particle types (`gas`, `star`, `bh`) are attached to the halo of their nearest DM particle. Unlisted types are given no halo, so they will be absent from halo properties and galaxy finding; e.g. leaving out `star` means no galaxies are found (default: all baryonic types).
 
 ## Aggregate Property Parameters
 

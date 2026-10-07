@@ -303,9 +303,12 @@ def analyse_snapshot(
     reader = build_reader(snapshot_path=config.snapshot_path, constants=oc, config=config)
     halo_source = build_halo_source(config=config, reader=reader)
 
+    timings: dict[str, float] = {}
+
     # parallelism: rank 0 determines which haloes need to go to which rank
     if rank == 0:  # no need for comm.Barrier() here as scatter does it inherently
-        all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
+        with timer(f"Read halo IDs ({config.halo_id_source})", timings=timings):
+            all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
         subhalo_info = halo_source.read_subhalo_info()
         halo_to_rank = generate_rank_halo_assignments(
             halo_assignments=all_halo_assignments, config=config, n_ranks=size
@@ -348,8 +351,12 @@ def analyse_snapshot(
 
     else:
         slabs = generate_slabs(rank=0, n_ranks=1, particle_counts=reader.particle_counts)
-        field_ids = halo_source.distribute_field_ids(slabs=slabs)
-        sub_ids = halo_source.distribute_sub_ids(slabs=slabs)
+        field_ids = halo_source.distribute_field_ids(
+            slabs=slabs, comm=None, global_ids=all_halo_assignments.field_ids
+        )
+        sub_ids = halo_source.distribute_sub_ids(
+            slabs=slabs, comm=None, global_subhalo_ids=all_halo_assignments.sub_ids
+        )
 
     # ranks determine the mapping from their slab to other ranks, and the mask for their own allocation of their slab
     masks: dict[str, np.ndarray] = {}
@@ -380,7 +387,6 @@ def analyse_snapshot(
     sub_ids = None
 
     # analysis pipeline
-    timings: dict[str, float] = {}
     packed_data = execute_pipeline(
         config=config,
         internals=internals,
@@ -501,7 +507,7 @@ def main() -> None:
             raise ValueError("Please provide a snapshot path.")
         if config.output_dir is None:
             raise ValueError("Please provide an output directory path.")
-        if config.halo_id_source != "SNAPSHOT" and config.halo_catalogue_path is None:
+        if config.halo_id_source not in ("SNAPSHOT", "FOF") and config.halo_catalogue_path is None:
             raise ValueError(
                 f"{config.halo_id_source} also requires a catalogue containing ID assignments to be specified in 'halo_catalogue_path'."
             )

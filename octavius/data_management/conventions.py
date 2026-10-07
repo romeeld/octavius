@@ -24,17 +24,18 @@ from ..log import get_logger
 logger = get_logger()
 
 # for config parsing
-CONFIG_FIELDS = frozenset({"thresholds", "physics", "fof6d", "properties", "photometry", "parallelism", "logging"})
+CONFIG_FIELDS = frozenset({"thresholds", "physics", "fof6d", "fof_haloes", "properties", "photometry", "parallelism", "logging"})
 FILEPATHS = frozenset({"snapshot_path", "output_dir", "halo_catalogue_path", "photometry_table_path"})
 VALID_SIM_TYPES = frozenset({"SIMBA", "SWIFT-KIARA", "SWIFT-EAGLE", "SWIFT-COLIBRE", "TNG"})
-VALID_HALO_CATS = frozenset({"SNAPSHOT", "AHF", "HBT-HERONS", "SUBFIND"})
+VALID_HALO_CATS = frozenset({"SNAPSHOT", "AHF", "HBT-HERONS", "SUBFIND", "FOF"})
 VALID_HALO_CENTRES = frozenset({"MIN_POT", "COM"})
 VALID_EXT_LAWS = frozenset({"COMPOSITE", "POWER_LAW", "CARDELLI", "CONROY", "CALZETTI", "MIX_CALZ_MW", "SMC", "LMC"})
 VALID_KERNELS = frozenset(["CUBIC", "QUINTIC"])
 VALID_VIEW_AXES = frozenset({"X", "Y", "Z"})
+BARYONIC_PTYPES = frozenset({"gas", "star", "bh"})
 VALID_GAS_CRITERIA = frozenset({"COLD", "STARFORMING", "COLD_OR_STARFORMING", "DENSE_ONLY"})
 ALWAYS_POSITIVE = frozenset(
-    {"b", "velocity_factor", "n_io_chunks", "interpolation_bins", "aperture_size", "virial_factors"}
+    {"b", "halo_b", "velocity_factor", "n_io_chunks", "interpolation_bins", "aperture_size", "virial_factors"}
 )
 
 VALID_ENTRIES: dict[str, frozenset[str]] = {
@@ -47,9 +48,9 @@ VALID_ENTRIES: dict[str, frozenset[str]] = {
 }
 
 VALID_COMBOS: dict[str, frozenset[str]] = {
-    "SWIFT": frozenset({"AHF", "SNAPSHOT", "HBT-HERONS"}),
-    "SIMBA": frozenset({"AHF", "SNAPSHOT"}),
-    "TNG": frozenset({"SUBFIND"}),
+    "SWIFT": frozenset({"AHF", "SNAPSHOT", "HBT-HERONS", "FOF"}),
+    "SIMBA": frozenset({"AHF", "SNAPSHOT", "FOF"}),
+    "TNG": frozenset({"SUBFIND", "FOF"}),
 }
 
 
@@ -67,6 +68,8 @@ class OctaviusConfig:
     -----
 
     - 'b' controls what fraction of the mean interparticle separation the linking length is. This is usually set to 0.02.
+    - 'halo_b' is the equivalent for the built-in FOF halo finder (halo_id_source: FOF), in units of the mean DM interparticle separation. This is usually set to 0.2.
+    - 'halo_attach_ptypes' lists the baryonic ptypes which the FOF halo finder attaches to haloes (all of them if None); unlisted ptypes are given no halo.
     - 'velocity_factor' is in units of the local velocity dispersion, and controls how many standard deviations from the local velocity dispersion a particle considers its neighbours to be linked in phase space.
     - FRAD is the radiative efficiency (in the accretion formula, usually 0.1).
     - MU is the mean molecular weight (in the virial scaling formulae, usually 0.6)
@@ -127,6 +130,9 @@ class OctaviusConfig:
     subhalo_override: bool = False
     gas_criterion: str = "COLD_OR_STARFORMING"
 
+    halo_b: float = 0.2
+    halo_attach_ptypes: list[str] | None = None  # None attaches all baryonic ptypes
+
     bands: list[str] = field(default_factory=lambda: ["all"])
     extinction_law: str = "COMPOSITE"
     viewing_axis: str = "Z"
@@ -162,6 +168,14 @@ class OctaviusConfig:
             if user_entered not in valid_entries:
                 raise ValueError(
                     f"'{user_entered}' is not a valid choice; please select from {', '.join(valid_entries)}."
+                )
+
+        if self.halo_attach_ptypes is not None:
+            invalid = set(self.halo_attach_ptypes) - BARYONIC_PTYPES
+            if invalid:
+                raise ValueError(
+                    f"'halo_attach_ptypes' contains {', '.join(sorted(invalid))}; "
+                    f"please select from {', '.join(sorted(BARYONIC_PTYPES))}."
                 )
 
         # fields which cannot be negative
