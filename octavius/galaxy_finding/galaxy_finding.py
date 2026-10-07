@@ -321,7 +321,7 @@ def extract_galaxies_from_parents(
         gas_mask = work_data.ptype_codes[s:e] == PTYPE_CODES["gas"]
         gas_counts = np.bincount(halo_parents[gas_mask], minlength=len(component_sizes))
 
-        valid_parents = np.where((component_sizes >= minstars) & (star_counts >= minstars) & (gas_counts > mingas))[0]
+        valid_parents = np.where((component_sizes >= minstars) & (star_counts >= minstars) & (gas_counts >= mingas))[0]
 
         if len(valid_parents) == 0:
             continue
