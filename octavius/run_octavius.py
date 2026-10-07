@@ -303,9 +303,12 @@ def analyse_snapshot(
     reader = build_reader(snapshot_path=config.snapshot_path, constants=oc, config=config)
     halo_source = build_halo_source(config=config, reader=reader)
 
+    timings: dict[str, float] = {}
+
     # parallelism: rank 0 determines which haloes need to go to which rank
     if rank == 0:  # no need for comm.Barrier() here as scatter does it inherently
-        all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
+        with timer(f"Read halo IDs ({config.halo_id_source})", timings=timings):
+            all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
         subhalo_info = halo_source.read_subhalo_info()
         halo_to_rank = generate_rank_halo_assignments(
             halo_assignments=all_halo_assignments, config=config, n_ranks=size
@@ -384,7 +387,6 @@ def analyse_snapshot(
     sub_ids = None
 
     # analysis pipeline
-    timings: dict[str, float] = {}
     packed_data = execute_pipeline(
         config=config,
         internals=internals,

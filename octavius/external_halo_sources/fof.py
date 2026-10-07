@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 # default libraries
 from collections.abc import Iterator, Mapping
+from time import perf_counter
 
 # other packages
 import numpy as np
@@ -49,13 +50,27 @@ class FOFHaloSource(HaloSource):
         n_dm = self.reader.particle_counts["dm"]
         logger.info(f"FOF: finding haloes in {n_dm:,} DM particles (b = {self.b}, min. {self.min_members} members).")
 
+        t_start = perf_counter()
+        dm_pos = self.reader.read_full_dataset(ptype="dm", dataset="pos")
+        t_read_dm = perf_counter() - t_start
+
+        baryon_pos = _LazyPositions(reader=self.reader, ptypes=[pt for pt in ptypes if pt != "dm"])
+        timings: dict[str, float] = {}
         halo_ids = find_fof_haloes(
-            dm_pos=self.reader.read_full_dataset(ptype="dm", dataset="pos"),
+            dm_pos=dm_pos,
             boxsize=boxsize,
             b=self.b,
-            baryon_pos=_LazyPositions(reader=self.reader, ptypes=[pt for pt in ptypes if pt != "dm"]),
+            baryon_pos=baryon_pos,
             min_members=self.min_members,
+            timings=timings,
         )
+        del dm_pos
+
+        # baryon positions are read lazily during attachment, so separate out the read time
+        timings["attaching baryons"] -= baryon_pos.read_time
+        steps = {"reading positions": t_read_dm + baryon_pos.read_time, **timings}
+        breakdown = ", ".join(f"{step} {elapsed:.1f}s" for step, elapsed in steps.items())
+        logger.info(f"FOF: halo finding completed in {perf_counter() - t_start:.1f}s ({breakdown}).")
 
         n_haloes = int(halo_ids["dm"].max()) + 1 if n_dm > 0 else 0
         logger.info(f"FOF: {n_haloes:,} field haloes | no subhalo information")
@@ -114,9 +129,13 @@ class _LazyPositions(Mapping):
     def __init__(self, reader: SnapshotReader, ptypes: list[str]) -> None:
         self.reader = reader
         self.ptypes = ptypes
+        self.read_time = 0.0  # cumulative time spent reading, for the timing breakdown
 
     def __getitem__(self, ptype: str) -> np.ndarray:
-        return self.reader.read_full_dataset(ptype=ptype, dataset="pos")
+        t0 = perf_counter()
+        pos = self.reader.read_full_dataset(ptype=ptype, dataset="pos")
+        self.read_time += perf_counter() - t0
+        return pos
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.ptypes)

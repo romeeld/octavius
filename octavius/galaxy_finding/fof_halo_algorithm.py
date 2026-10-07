@@ -33,6 +33,7 @@ Original FoF: Davis et al. 1985, doi: 10.1086/163168
 
 # default libraries
 from collections.abc import Mapping
+from time import perf_counter
 
 # workhorses
 from numba import get_num_threads, njit, prange
@@ -70,6 +71,7 @@ def find_fof_haloes(
     baryon_pos: Mapping[str, np.ndarray] | None = None,
     min_members: int = 20,
     n_slabs: int | None = None,
+    timings: dict[str, float] | None = None,
 ) -> dict[str, np.ndarray]:
     """
     Identifies haloes with a periodic 3D friends-of-friends on the DM particles, then attaches baryons to the halo
@@ -84,7 +86,11 @@ def find_fof_haloes(
     - baryon_pos: optional mapping of ptype -> (M, 3) positions to attach to the DM haloes (read one at a time)
     - min_members: groups with fewer DM particles than this are discarded
     - n_slabs: number of x-slabs to link in parallel; defaults to 8 per thread for load balancing
+    - timings: optional dict which is filled with the wall time (s) of each step
     """
+    timings = {} if timings is None else timings
+    t0 = perf_counter()
+
     dm_pos = np.ascontiguousarray(dm_pos, dtype=np.float64)
     n_dm = len(dm_pos)
 
@@ -105,7 +111,9 @@ def find_fof_haloes(
     sort_order, sorted_pos, cell_offsets, unique_cells, row_offsets = build_periodic_cell_list(
         pos=dm_pos, boxsize=boxsize, n_cells_per_dim=n_cells_per_dim
     )
+    timings["cell grid"] = perf_counter() - t0
 
+    t0 = perf_counter()
     parents = link_haloes(
         positions=sorted_pos,
         cell_offsets=cell_offsets,
@@ -122,7 +130,9 @@ def find_fof_haloes(
     halo_ids = {"dm": np.empty(n_dm, dtype=np.int64)}
     halo_ids["dm"][sort_order] = labels_sorted
     del sort_order
+    timings["linking"] = perf_counter() - t0
 
+    t0 = perf_counter()
     for ptype, pos in (baryon_pos or {}).items():
         halo_ids[ptype] = attach_to_nearest_dm(
             positions=gather_wrapped_positions(  # wrap so minimum image is exact
@@ -137,6 +147,7 @@ def find_fof_haloes(
             boxsize=boxsize,
             linking_length=linking_length,
         )
+    timings["attaching baryons"] = perf_counter() - t0
 
     return halo_ids
 
