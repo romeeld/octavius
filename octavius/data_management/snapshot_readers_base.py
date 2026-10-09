@@ -240,10 +240,11 @@ class SnapshotReader(ABC):
         with h5py.File(self.snapshot_path) as f:
             return [pt for raw, pt in self.ptype_map.items() if raw in f and len(f[raw]) > 0]
 
-    def read_full_dataset(self, ptype: str, dataset: str) -> np.ndarray:
+    def read_full_dataset(self, ptype: str, dataset: str, slab: slice | None = None) -> np.ndarray:
         """
-        Reads an entire particle dataset in internal code units, ignoring slabs, masks and redistribution. This is for
-        rank 0 pre-processing (e.g. halo finding) before the particle distribution across ranks is known.
+        Reads an entire particle dataset (or just the given slab of it) in internal code units, ignoring the pipeline's
+        slabs, masks and redistribution. This is for pre-processing (e.g. halo finding) before the particle
+        distribution across ranks is known.
         """
         hdf5_group = self.inverse_ptype_map[ptype]
         hdf5_name = self.dataset_map_overrides.get((ptype, dataset), self.dataset_map[dataset])
@@ -251,10 +252,12 @@ class SnapshotReader(ABC):
         with h5py.File(self.snapshot_path, "r") as f:
             hdf5_dataset = f[hdf5_group][hdf5_name]
             conversion_factor = self._unit_conversion_factor(dataset=dataset, hdf5_dataset=hdf5_dataset)
-            values = np.empty(hdf5_dataset.shape, dtype=hdf5_dataset.dtype)
+            if slab is None:
+                slab = slice(0, hdf5_dataset.shape[0])
+            values = np.empty((slab.stop - slab.start,) + hdf5_dataset.shape[1:], dtype=hdf5_dataset.dtype)
 
-            for chunk in split_slab(slice(0, hdf5_dataset.shape[0]), self.n_io_chunks):
-                values[chunk] = hdf5_dataset[chunk]
+            for chunk in split_slab(slab, self.n_io_chunks):
+                values[chunk.start - slab.start : chunk.stop - slab.start] = hdf5_dataset[chunk]
 
         return self._convert_units(dataset=dataset, values=values, conversion_factor=conversion_factor)
 

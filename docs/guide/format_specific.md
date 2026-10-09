@@ -33,7 +33,9 @@ Subhaloes can be identified with the `depth` column in `halo_data`: the column i
 
 ### FOF
 
-- Halo finding runs on rank 0 before particles are distributed, so rank 0 must be able to hold every particle's position (plus roughly 65 bytes per DM particle of working memory). It uses `cores_per_rank` threads.
+- Under MPI, halo finding is spread across every rank: the box is split into slabs along x with roughly equal numbers of DM particles, and each rank only holds its own slab (plus a thin layer of neighbouring particles), so the box size is limited by the total memory of all ranks rather than one. Each rank uses `cores_per_rank` threads. The resulting HaloIDs do not depend on the number of ranks. Slabs must be at least two FOF cells (about one linking length) thick, so ranks beyond that limit sit idle during halo finding; this only matters for tiny boxes.
+
+- Without MPI (no `mpi4py`), halo finding runs in one process, which must hold every particle's position (plus roughly 65 bytes per DM particle of working memory).
 
 - HaloIDs are ordered by descending DM membership, so halo 0 is the largest.
 

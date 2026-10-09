@@ -136,11 +136,25 @@ class HaloSource(ABC):
     """
     Abstract base class for external halo catalogues. Should not be instantiated
     directly, but always inherited.
+
+    Sources with collective = True find HaloIDs with every rank at once (read_local_halo_ids()) when running with MPI,
+    rather than reading them all on rank 0 (read_halo_ids()) and distributing them.
     """
+
+    collective: bool = False
 
     def __init__(self, reader: SnapshotReader) -> None:
 
         self.reader = reader
+
+    def read_local_halo_ids(
+        self, ptypes: list[str], slabs: dict[str, slice], comm: Comm
+    ) -> tuple[dict[str, np.ndarray], int]:
+        """
+        Collective. Returns (field_ids, n_field_haloes): the per-ptype field HaloIDs of the particles on this rank's
+        slabs, and the total number of field haloes. Only sources with collective = True implement this.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not find halo IDs collectively.")
 
     @abstractmethod
     def read_halo_ids(self, ptypes: list[str]) -> HaloAssignments:

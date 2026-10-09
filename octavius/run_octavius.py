@@ -43,6 +43,8 @@ from .data_management import (
     release_stage_columns,
     validate_stage_requirements,
     generate_rank_halo_assignments,
+    assign_haloes_to_ranks,
+    reduce_halo_member_counts,
     generate_slabs,
     redistribute_data,
     assign_local_subhaloes,
@@ -306,14 +308,32 @@ def analyse_snapshot(
     timings: dict[str, float] = {}
 
     # parallelism: rank 0 determines which haloes need to go to which rank
-    if rank == 0:  # no need for comm.Barrier() here as scatter does it inherently
+    collective = comm is not None and halo_source.collective  # haloes found by all ranks at once (no global IDs)
+
+    if collective:
+        slabs = generate_slabs(rank=rank, n_ranks=size, particle_counts=reader.particle_counts)
         with timer(f"Read halo IDs ({config.halo_id_source})", timings=timings):
-            all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
-        subhalo_info = halo_source.read_subhalo_info()
-        halo_to_rank = generate_rank_halo_assignments(
-            halo_assignments=all_halo_assignments, config=config, n_ranks=size
-        )
-        original_halo_ids = all_halo_assignments.original_field_ids
+            field_ids, n_field_haloes = halo_source.read_local_halo_ids(
+                ptypes=reader.available_ptypes, slabs=slabs, comm=comm
+            )
+        sub_ids = None
+        ptype_counts = reduce_halo_member_counts(field_ids=field_ids, n_field_haloes=n_field_haloes, comm=comm)
+
+    if rank == 0:  # no need for comm.Barrier() here as scatter does it inherently
+        if collective:
+            subhalo_info = None
+            original_halo_ids = None
+            halo_to_rank = assign_haloes_to_ranks(
+                ptype_counts=ptype_counts, n_field_haloes=n_field_haloes, config=config, n_ranks=size
+            )
+        else:
+            with timer(f"Read halo IDs ({config.halo_id_source})", timings=timings):
+                all_halo_assignments = halo_source.read_halo_ids(ptypes=reader.available_ptypes)
+            subhalo_info = halo_source.read_subhalo_info()
+            halo_to_rank = generate_rank_halo_assignments(
+                halo_assignments=all_halo_assignments, config=config, n_ranks=size
+            )
+            original_halo_ids = all_halo_assignments.original_field_ids
         halo_to_rank_length = len(halo_to_rank)
         assert halo_to_rank.dtype == np.int64, (
             "Bcast is receiving wrong dtype (bit corruption)."
@@ -338,6 +358,8 @@ def analyse_snapshot(
         )  # lowercase b broadcast for the subhalo dataclass (subset of haloes so smaller)
         original_halo_ids = comm.bcast(original_halo_ids, root=0) if comm else original_halo_ids
 
+    # (with a collective source, every rank already holds the HaloIDs of its own slabs)
+    if comm is not None and not collective:
         # ranks determine which slab of each dataset they will read
         slabs = generate_slabs(rank=rank, n_ranks=size, particle_counts=reader.particle_counts)
 
@@ -349,7 +371,7 @@ def analyse_snapshot(
             slabs=slabs, comm=comm, global_subhalo_ids=all_halo_assignments.sub_ids if rank == 0 else None
         )
 
-    else:
+    elif comm is None:
         slabs = generate_slabs(rank=0, n_ranks=1, particle_counts=reader.particle_counts)
         field_ids = halo_source.distribute_field_ids(
             slabs=slabs, comm=None, global_ids=all_halo_assignments.field_ids
