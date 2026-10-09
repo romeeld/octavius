@@ -6,7 +6,7 @@ the snapshot itself, so no external catalogue is required.
 """
 
 # type checking (semantic)
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..data_management import SnapshotReader
@@ -22,8 +22,10 @@ import numpy as np
 # internal imports
 from .halo_data_structures import HaloSource, HaloAssignments, SubhaloInformation, distribute_ids
 from ..galaxy_finding.fof_halo_algorithm import find_fof_haloes
+from ..data_management.snapshot_readers_base import HALO_ID_PROVENANCE
 from ..galaxy_finding.fof_halo_mpi import find_fof_haloes_mpi
 from ..log import get_logger
+from ..version import __version__
 
 logger = get_logger()
 
@@ -108,6 +110,18 @@ class FOFHaloSource(HaloSource):
         self._finish(halo_ids, ptypes, attached, t_start, t_read_dm, baryon_pos, timings, n_haloes, comm, slabs)
 
         return halo_ids, n_haloes
+
+    def snapshot_attributes(self) -> dict[str, Any]:
+        """
+        Provenance stored with the halo IDs if they are written back to the snapshot.
+        """
+        return {
+            HALO_ID_PROVENANCE: "FOF",
+            "octavius_version": __version__,
+            "halo_b": self.b,
+            "min_dm_per_halo": self.min_members,
+            "halo_attach_ptypes": ",".join(self.attach_ptypes) if self.attach_ptypes is not None else "gas,star,bh",
+        }
 
     def _start(self, ptypes: list[str]) -> list[str]:
         """

@@ -27,7 +27,8 @@ logger = get_logger()
 CONFIG_FIELDS = frozenset({"thresholds", "physics", "fof6d", "fof_haloes", "properties", "photometry", "parallelism", "logging"})
 FILEPATHS = frozenset({"snapshot_path", "output_dir", "halo_catalogue_path", "photometry_table_path"})
 VALID_SIM_TYPES = frozenset({"SIMBA", "SWIFT-KIARA", "SWIFT-EAGLE", "SWIFT-COLIBRE", "TNG"})
-VALID_HALO_CATS = frozenset({"SNAPSHOT", "AHF", "HBT-HERONS", "SUBFIND", "FOF"})
+VALID_HALO_CATS = frozenset({"SNAPSHOT", "AHF", "HBT-HERONS", "SUBFIND", "FOF", "SNAP_OR_FOF"})
+FOF_HALO_SOURCES = frozenset({"FOF", "SNAP_OR_FOF"})  # sources which may run the built-in FOF halo finder
 VALID_HALO_CENTRES = frozenset({"MIN_POT", "COM"})
 VALID_EXT_LAWS = frozenset({"COMPOSITE", "POWER_LAW", "CARDELLI", "CONROY", "CALZETTI", "MIX_CALZ_MW", "SMC", "LMC"})
 VALID_KERNELS = frozenset(["CUBIC", "QUINTIC"])
@@ -48,8 +49,8 @@ VALID_ENTRIES: dict[str, frozenset[str]] = {
 }
 
 VALID_COMBOS: dict[str, frozenset[str]] = {
-    "SWIFT": frozenset({"AHF", "SNAPSHOT", "HBT-HERONS", "FOF"}),
-    "SIMBA": frozenset({"AHF", "SNAPSHOT", "FOF"}),
+    "SWIFT": frozenset({"AHF", "SNAPSHOT", "HBT-HERONS", "FOF", "SNAP_OR_FOF"}),
+    "SIMBA": frozenset({"AHF", "SNAPSHOT", "FOF", "SNAP_OR_FOF"}),
     "TNG": frozenset({"SUBFIND", "FOF"}),
 }
 
@@ -70,6 +71,7 @@ class OctaviusConfig:
     - 'b' controls what fraction of the mean interparticle separation the linking length is. This is usually set to 0.02.
     - 'halo_b' is the equivalent for the built-in FOF halo finder (halo_id_source: FOF), in units of the mean DM interparticle separation. This is usually set to 0.2.
     - 'halo_attach_ptypes' lists the baryonic ptypes which the FOF halo finder attaches to haloes (all of them if None); unlisted ptypes are given no halo.
+    - 'write_halo_ids' writes the FOF HaloIDs back into the snapshot (in its own halo ID dataset), so later runs can use halo_id_source: SNAPSHOT or SNAP_OR_FOF instead of repeating the halo finding.
     - 'velocity_factor' is in units of the local velocity dispersion, and controls how many standard deviations from the local velocity dispersion a particle considers its neighbours to be linked in phase space.
     - FRAD is the radiative efficiency (in the accretion formula, usually 0.1).
     - MU is the mean molecular weight (in the virial scaling formulae, usually 0.6)
@@ -132,6 +134,7 @@ class OctaviusConfig:
 
     halo_b: float = 0.2
     halo_attach_ptypes: list[str] | None = None  # None attaches all baryonic ptypes
+    write_halo_ids: bool = False
 
     bands: list[str] = field(default_factory=lambda: ["all"])
     extinction_law: str = "COMPOSITE"
@@ -198,6 +201,13 @@ class OctaviusConfig:
                 f"'{self.halo_id_source}' is not currently supported for '{self.simulation_type}'; "
                 f"please select from {', '.join(sorted(valid_sources))}."
             )
+
+        if self.write_halo_ids and self.halo_id_source not in FOF_HALO_SOURCES:
+            raise ValueError(
+                f"'write_halo_ids' only applies to FOF halo finding, not halo_id_source '{self.halo_id_source}'."
+            )
+        if self.write_halo_ids and sim_prefix == "TNG":
+            raise ValueError("'write_halo_ids' is not supported for TNG, whose snapshots have no halo ID datasets.")
 
         # HACK: auto-expand photometry bands for user convenience
         if self.stages.get("photometry", False) and self.photometry_table_path is not None:

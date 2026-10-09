@@ -9,7 +9,7 @@ to be easily extended by inheriting a reader and having all the MPI trickery han
 """
 
 # type checking
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from .conventions import OctaviusConstants
@@ -44,6 +44,9 @@ from .conventions import (
 from ..log import get_logger
 
 logger = get_logger()
+
+SWIFT_NO_GROUP = 2147483647  # SWIFT's FOFGroupIDs sentinel for particles in no group
+HALO_ID_PROVENANCE = "octavius_halo_finder"  # attribute marking snapshot halo IDs which Octavius wrote
 
 
 class SnapshotReader(ABC):
@@ -338,6 +341,94 @@ class SnapshotReader(ABC):
         """
         ...
 
+    def encode_halo_ids(self, halo_ids: np.ndarray) -> np.ndarray:
+        """
+        The inverse of read_halo_ids(): maps 0-indexed HaloIDs (sentinel -1) to the snapshot's own convention, for
+        writing them back to the snapshot.
+        """
+        raise NotImplementedError(f"{type(self).__name__} snapshots cannot store halo IDs.")
+
+    def has_halo_ids(self, ptype: str) -> bool:
+        """
+        Checks whether the snapshot contains HaloIDs for a ptype.
+        """
+        halo_id_name = self.id_map.get("HaloID")
+        if not halo_id_name:
+            return False
+
+        with h5py.File(self.snapshot_path, "r") as f:
+            return halo_id_name in f.get(self.inverse_ptype_map[ptype], {})
+
+    def write_halo_ids(
+        self,
+        field_ids: dict[str, np.ndarray],
+        slabs: dict[str, slice],
+        comm: Comm | None,
+        attributes: dict[str, Any],
+    ) -> bool:
+        """
+        Collective. Writes HaloIDs (each rank's slabs, 0-indexed) into the snapshot in its own convention, so they can
+        be read back with read_halo_ids(); the datasets are tagged with attributes (provenance). Halo IDs not written
+        by Octavius are never overwritten, and an unwritable snapshot is skipped with a warning. Ranks write in turn.
+        Returns whether the halo IDs were written.
+        """
+        rank = comm.Get_rank() if comm is not None else 0
+        n_ranks = comm.Get_size() if comm is not None else 1
+        ptypes = sorted(field_ids)  # ranks must iterate in same order
+
+        problem = self._create_halo_id_datasets(ptypes=ptypes, attributes=attributes) if rank == 0 else None
+        if comm is not None:
+            problem = comm.bcast(problem, root=0)
+        if problem is not None:
+            logger.warning(f"Not writing halo IDs to the snapshot: {problem}")
+            return False
+
+        halo_id_name = self.id_map["HaloID"]
+        for turn in range(n_ranks):  # HDF5 without MPI-IO cannot be written to by several processes at once
+            if rank == turn:
+                with h5py.File(self.snapshot_path, "r+") as f:
+                    for ptype in ptypes:
+                        slab = slabs[ptype]
+                        encoded = self.encode_halo_ids(field_ids[ptype])
+                        hdf5_dataset = f[self.inverse_ptype_map[ptype]][halo_id_name]
+
+                        for chunk in split_slab(slab, self.n_io_chunks):
+                            hdf5_dataset[chunk] = encoded[chunk.start - slab.start : chunk.stop - slab.start]
+            if comm is not None:
+                comm.Barrier()
+
+        logger.info(f"Wrote halo IDs to {self.snapshot_path} as '{halo_id_name}' for {', '.join(ptypes)}.")
+        return True
+
+    def _create_halo_id_datasets(self, ptypes: list[str], attributes: dict[str, Any]) -> str | None:
+        """
+        Creates the (empty) HaloID datasets, replacing any previously written by Octavius. Returns why the halo IDs
+        cannot be written, or None if they can.
+        """
+        halo_id_name = self.id_map.get("HaloID")
+        if not halo_id_name:
+            return f"{type(self).__name__} snapshots cannot store halo IDs."
+
+        try:
+            f = h5py.File(self.snapshot_path, "r+")
+        except OSError as error:
+            return f"the snapshot could not be opened for writing ({error})."
+
+        with f:
+            for ptype in ptypes:  # check everything before changing anything
+                group = f[self.inverse_ptype_map[ptype]]
+                if halo_id_name in group and HALO_ID_PROVENANCE not in group[halo_id_name].attrs:
+                    return f"{group.name}/{halo_id_name} already exists and was not written by Octavius."
+
+            for ptype in ptypes:
+                group = f[self.inverse_ptype_map[ptype]]
+                if halo_id_name in group:
+                    del group[halo_id_name]
+                dataset = group.create_dataset(halo_id_name, shape=(self.particle_counts[ptype],), dtype=np.int64)
+                dataset.attrs.update(attributes)
+
+        return None
+
 
 class SwiftReader(SnapshotReader):
     """
@@ -480,11 +571,17 @@ class SwiftReader(SnapshotReader):
 
             raw_halo_ids = raw_halo_ids.astype(DTYPES.get("HaloID", np.int64), copy=False)
 
-        sentinel_mask = raw_halo_ids == 2147483647  # uint32 max value (as for why they do this? I have no idea)
+        sentinel_mask = raw_halo_ids == SWIFT_NO_GROUP  # int32 max value (as for why they do this? I have no idea)
         raw_halo_ids -= 1  # SWIFT is also 1-indexed
         raw_halo_ids[sentinel_mask] = -1
 
         return raw_halo_ids
+
+    def encode_halo_ids(self, halo_ids: np.ndarray) -> np.ndarray:
+        """
+        Maps 0-indexed HaloIDs to SWIFT FOFGroupIDs (1-indexed, with SWIFT's sentinel).
+        """
+        return np.where(halo_ids == -1, SWIFT_NO_GROUP, halo_ids + 1).astype(np.int64)
 
 
 class GadgetReader(SnapshotReader):

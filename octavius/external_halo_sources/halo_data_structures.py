@@ -5,7 +5,7 @@ Internal agnostic halo source infrastructure, for passing to the likewise-agnost
 """
 
 # type checking (semantic)
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..data_management import SnapshotReader, OctaviusConfig
@@ -76,8 +76,15 @@ def build_halo_source(config: OctaviusConfig, reader: SnapshotReader) -> HaloSou
         logger.info("Using snapshot haloes.")
         return SnapshotHaloSource(reader=reader)
 
-    elif id_source == "FOF":
+    elif id_source in ("FOF", "SNAP_OR_FOF"):
         from .fof import FOFHaloSource
+
+        if id_source == "SNAP_OR_FOF":
+            missing = [ptype for ptype in reader.available_ptypes if not reader.has_halo_ids(ptype)]
+            if not missing:
+                logger.info("Snapshot contains halo IDs; using snapshot haloes.")
+                return SnapshotHaloSource(reader=reader)
+            logger.info(f"Snapshot has no halo IDs for {', '.join(missing)}; finding FOF haloes instead.")
 
         logger.info("Using built-in FOF haloes.")
         return FOFHaloSource(
@@ -155,6 +162,13 @@ class HaloSource(ABC):
         slabs, and the total number of field haloes. Only sources with collective = True implement this.
         """
         raise NotImplementedError(f"{type(self).__name__} does not find halo IDs collectively.")
+
+    def snapshot_attributes(self) -> dict[str, Any] | None:
+        """
+        For sources which find haloes themselves: the provenance attributes stored alongside their halo IDs when
+        written back to the snapshot (write_halo_ids). None for sources whose halo IDs should not be written back.
+        """
+        return None
 
     @abstractmethod
     def read_halo_ids(self, ptypes: list[str]) -> HaloAssignments:

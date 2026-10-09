@@ -37,13 +37,13 @@ The output catalogue will inherit the name of the snapshot prefixed with `octavi
 
 `simulation_type`: the format of the snapshot (`SIMBA` / `SWIFT-KIARA` / `SWIFT-EAGLE` / `SWIFT-COLIBRE` / `TNG`).
 
-`halo_id_source`: where the halo catalogue should be parsed from (`SNAPSHOT` / `AHF` / `HBT-HERONS` / `SUBFIND` / `FOF`). `FOF` identifies haloes with the built-in friends-of-friends finder, for snapshots without halo assignments.
+`halo_id_source`: where the halo catalogue should be parsed from (`SNAPSHOT` / `AHF` / `HBT-HERONS` / `SUBFIND` / `FOF` / `SNAP_OR_FOF`). `FOF` identifies haloes with the built-in friends-of-friends finder, for snapshots without halo assignments. `SNAP_OR_FOF` uses the snapshot's halo IDs if every particle type has them, and runs `FOF` otherwise.
 
 `snapshot_path`: the filepath of the snapshot (can be overridden at runtime via command-line arguments).
 
 `output_dir`: the directory to which you would like outputs routed.
 
-`halo_catalogue_path`: the filepath of the halo catalogue (can be left blank if using snapshot IDs or `FOF`).
+`halo_catalogue_path`: the filepath of the halo catalogue (can be left blank if using snapshot IDs, `FOF` or `SNAP_OR_FOF`).
 
 `compress_catalogue`: whether to apply lossless GZIP compression to the catalogue (default: `True`).
 
@@ -101,11 +101,13 @@ Please note disabling a particle entirely may have unintended consequences: for 
 
 ## FOF Halo Parameters
 
-Only used when `halo_id_source` is `FOF`. Haloes are found with a periodic 3D friends-of-friends on the DM particles; gas, stars and black holes are then assigned to the halo of their nearest DM particle within the linking length. Haloes with fewer DM particles than `min_dm_per_halo` are discarded, and FOF haloes carry no subhalo information.
+Only used when `halo_id_source` is `FOF` (or `SNAP_OR_FOF` and the snapshot has no halo IDs). Haloes are found with a periodic 3D friends-of-friends on the DM particles; gas, stars and black holes are then assigned to the halo of their nearest DM particle within the linking length. Haloes with fewer DM particles than `min_dm_per_halo` are discarded, and FOF haloes carry no subhalo information.
 
 `halo_b`: the DM linking length as a fraction of the mean DM interparticle separation (default: `0.2`).
 
 `halo_attach_ptypes`: which baryonic particle types (`gas`, `star`, `bh`) are attached to the halo of their nearest DM particle. Unlisted types are given no halo, so they will be absent from halo properties and galaxy finding; e.g. leaving out `star` means no galaxies are found (default: all baryonic types).
+
+`write_halo_ids`: write the FOF halo IDs into the snapshot, in the format's own halo ID dataset (`FOFGroupIDs` for SWIFT, `HaloID` for SIMBA), so later runs with `SNAPSHOT` or `SNAP_OR_FOF` can skip halo finding. The datasets record `halo_b`, `min_dm_per_halo`, `halo_attach_ptypes` and the Octavius version as attributes. Since haloes below `min_dm_per_halo` are not stored, later runs cannot use a lower threshold. Halo IDs which Octavius did not write are never overwritten, and if the snapshot cannot be opened for writing a warning is logged and the run continues. Not available for TNG (default: `false`).
 
 ## Aggregate Property Parameters
 

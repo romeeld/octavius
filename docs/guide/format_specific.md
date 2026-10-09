@@ -39,6 +39,8 @@ Subhaloes can be identified with the `depth` column in `halo_data`: the column i
 
 - HaloIDs are ordered by descending DM membership, so halo 0 is the largest.
 
+- With `write_halo_ids`, ranks write their share of the halo IDs to the snapshot one after another; this is a one-off cost of writing 8 bytes per particle. For multi-file SWIFT snapshots the halo IDs are stored as ordinary datasets in the virtual-dataset file, not in the individual files.
+
 ### SUBFIND
 
 - The pipeline will assume the particles in the original snapshot have been re-ordered according to the SUBFIND catalogue assignments.

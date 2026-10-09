@@ -380,6 +380,12 @@ def analyse_snapshot(
             slabs=slabs, comm=None, global_subhalo_ids=all_halo_assignments.sub_ids
         )
 
+    # optionally store the halo IDs in the snapshot, so later runs need not find them again
+    provenance = halo_source.snapshot_attributes()
+    if config.write_halo_ids and provenance is not None:
+        with timer("Write halo IDs to snapshot", timings=timings):
+            reader.write_halo_ids(field_ids=field_ids, slabs=slabs, comm=comm, attributes=provenance)
+
     # ranks determine the mapping from their slab to other ranks, and the mask for their own allocation of their slab
     masks: dict[str, np.ndarray] = {}
     maps: dict[str, RedistributionMap] = {}
@@ -529,7 +535,7 @@ def main() -> None:
             raise ValueError("Please provide a snapshot path.")
         if config.output_dir is None:
             raise ValueError("Please provide an output directory path.")
-        if config.halo_id_source not in ("SNAPSHOT", "FOF") and config.halo_catalogue_path is None:
+        if config.halo_id_source not in ("SNAPSHOT", "FOF", "SNAP_OR_FOF") and config.halo_catalogue_path is None:
             raise ValueError(
                 f"{config.halo_id_source} also requires a catalogue containing ID assignments to be specified in 'halo_catalogue_path'."
             )

@@ -217,3 +217,143 @@ def test_config_rejects_unknown_attach_ptypes(tmp_path: Path) -> None:
             photometry_table_path=None,
             halo_attach_ptypes=["gas", "dm"],
         )
+
+
+def strip_halo_ids(snapshot_path: Path, reader_halo_id_name: str) -> None:
+    """
+    Removes the synthetic snapshot's own halo IDs, as for a snapshot written without them.
+    """
+    with h5py.File(snapshot_path, "r+") as f:
+        for group in f.values():
+            if isinstance(group, h5py.Group) and reader_halo_id_name in group:
+                del group[reader_halo_id_name]
+
+
+def fof_config(snapshot_path: Path, tmp_path: Path, sim_type: str, **overrides) -> OctaviusConfig:
+    return OctaviusConfig.from_yaml(
+        config_path=CONFIG_PATH,
+        simulation_type=sim_type,
+        snapshot_path=snapshot_path,
+        output_dir=tmp_path,
+        cores_per_rank=1,
+        photometry_table_path=None,
+        min_dm_per_halo=10,
+        **{"halo_id_source": "FOF", **overrides},
+    )
+
+
+def make_snapshot(sim_type: str, path: Path) -> None:
+    if sim_type == "SIMBA":
+        generate_simba_snapshot(path=path)
+    else:
+        generate_swift_snapshot(path=path, model="KIARA")
+
+
+@pytest.mark.parametrize("sim_type", ["SIMBA", "SWIFT-KIARA"])
+def test_written_halo_ids_read_back_as_snapshot_haloes(sim_type: str, tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    make_snapshot(sim_type, snapshot_path)
+    config = fof_config(snapshot_path, tmp_path, sim_type, write_halo_ids=True)
+    reader = build_reader(snapshot_path=snapshot_path, constants=OctaviusConstants(), config=config)
+    strip_halo_ids(snapshot_path, reader.id_map["HaloID"])
+
+    fof = build_halo_source(config=config, reader=reader).read_halo_ids(ptypes=reader.available_ptypes)
+    slabs = {ptype: slice(0, reader.particle_counts[ptype]) for ptype in reader.available_ptypes}
+    assert reader.write_halo_ids(
+        field_ids=fof.field_ids, slabs=slabs, comm=None, attributes={"octavius_halo_finder": "FOF"}
+    )
+
+    snapshot = SnapshotHaloSource(reader=reader).read_halo_ids(ptypes=reader.available_ptypes)
+    assert snapshot.n_field_haloes == fof.n_field_haloes
+    for ptype in reader.available_ptypes:
+        assert np.array_equal(snapshot.field_ids[ptype], fof.field_ids[ptype])
+
+    # Octavius's own halo IDs may be replaced, e.g. by a rerun with another linking length
+    assert reader.write_halo_ids(
+        field_ids=fof.field_ids, slabs=slabs, comm=None, attributes={"octavius_halo_finder": "FOF"}
+    )
+
+
+def test_halo_ids_from_elsewhere_are_not_overwritten(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_simba_snapshot(path=snapshot_path)
+    config = fof_config(snapshot_path, tmp_path, "SIMBA", write_halo_ids=True)
+    reader = build_reader(snapshot_path=snapshot_path, constants=OctaviusConstants(), config=config)
+    before = SnapshotHaloSource(reader=reader).read_halo_ids(ptypes=reader.available_ptypes).field_ids
+
+    field_ids = {ptype: np.full(len(ids), -1, dtype=np.int64) for ptype, ids in before.items()}
+    slabs = {ptype: slice(0, len(ids)) for ptype, ids in before.items()}
+    assert not reader.write_halo_ids(
+        field_ids=field_ids, slabs=slabs, comm=None, attributes={"octavius_halo_finder": "FOF"}
+    )
+
+    after = SnapshotHaloSource(reader=reader).read_halo_ids(ptypes=reader.available_ptypes).field_ids
+    for ptype in before:
+        assert np.array_equal(before[ptype], after[ptype])
+
+
+@pytest.mark.parametrize("has_halo_ids", [True, False])
+def test_snap_or_fof_picks_source(has_halo_ids: bool, tmp_path: Path) -> None:
+    from octavius.external_halo_sources.fof import FOFHaloSource
+
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_swift_snapshot(path=snapshot_path, model="KIARA")
+    config = fof_config(snapshot_path, tmp_path, "SWIFT-KIARA", halo_id_source="SNAP_OR_FOF")
+    reader = build_reader(snapshot_path=snapshot_path, constants=OctaviusConstants(), config=config)
+    if not has_halo_ids:
+        strip_halo_ids(snapshot_path, reader.id_map["HaloID"])
+
+    source = build_halo_source(config=config, reader=reader)
+
+    assert type(source) is (SnapshotHaloSource if has_halo_ids else FOFHaloSource)
+
+
+def test_write_halo_ids_needs_fof(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="write_halo_ids"):
+        fof_config(tmp_path / "snapshot.hdf5", tmp_path, "SIMBA", halo_id_source="SNAPSHOT", write_halo_ids=True)
+
+
+@pytest.mark.parametrize("without_mpi", [False, True])
+def test_pipeline_reuses_written_halo_ids(without_mpi: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The intended workflow: the first SNAP_OR_FOF run finds FOF haloes and writes them to the snapshot, the second
+    reads them from the snapshot and produces the same catalogue.
+    """
+    if without_mpi:
+        monkeypatch.setattr("octavius.run_octavius.get_mpi_communicator", lambda: None)
+
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_simba_snapshot(path=snapshot_path)
+    strip_halo_ids(snapshot_path, "HaloID")
+
+    catalogues = []
+    for run in ("first", "second"):
+        output_dir = tmp_path / run
+        output_dir.mkdir()
+        config = fof_config(
+            snapshot_path,
+            output_dir,
+            "SIMBA",
+            halo_id_source="SNAP_OR_FOF",
+            write_halo_ids=True,
+            stages={
+                "find_galaxies": True,
+                "properties_core": True,
+                "properties_ptype_specific": False,
+                "properties_local_environment": False,
+                "photometry": False,
+            },
+            min_stars_per_galaxy=2,
+            b=1.5,
+            velocity_factor=5,
+            compress_catalogue=False,
+        )
+        with h5py.File(analyse_snapshot(config=config), "r") as catalogue:
+            catalogues.append({k: catalogue["halo_data/properties/core"][k][...] for k in ("n_dm", "mass_total")})
+
+        with h5py.File(snapshot_path, "r") as f:
+            assert f["PartType1/HaloID"].attrs["octavius_halo_finder"] == "FOF"
+
+    assert len(catalogues[0]["n_dm"]) == 3
+    for key in catalogues[0]:
+        assert np.array_equal(catalogues[0][key], catalogues[1][key])
