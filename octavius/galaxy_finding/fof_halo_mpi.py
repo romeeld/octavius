@@ -43,6 +43,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from ..data_management.parallel_reading import RedistributionMap, redistribute_data
+from ..log import get_logger
 from .fof_halo_algorithm import (
     STENCIL_REACH,
     attach_to_nearest_dm,
@@ -54,7 +55,10 @@ from .fof_halo_algorithm import (
     thread_slab_bounds,
 )
 
+logger = get_logger()
+
 NO_GROUP = -1  # sentinel for ghost groups with no owned particles, whose edges are redundant
+IMBALANCE_WARNING = 2.0  # warn when the busiest domain holds this many times the mean number of DM particles
 
 
 @dataclass(slots=True, frozen=True)
@@ -243,6 +247,8 @@ def decompose_domains(planes: np.ndarray, n_cells_per_dim: int, comm: Comm) -> D
     counts = np.bincount(planes, minlength=n_cells_per_dim).astype(np.int64)
     comm.Allreduce(counts.copy(), counts)  # in place is not portable across MPI implementations
     bounds = balanced_bounds(counts=counts, n_domains=n_domains, min_thickness=min_thickness)
+    if comm.rank == 0:
+        log_decomposition(counts=counts, bounds=bounds, n_ranks=n_ranks)
 
     index = comm.rank if comm.rank < n_domains else -1
     if n_domains == 1:
@@ -256,6 +262,31 @@ def decompose_domains(planes: np.ndarray, n_cells_per_dim: int, comm: Comm) -> D
         n_planes=int(thickness + 2 * STENCIL_REACH),
         periodic_x=False,
     )
+
+
+def log_decomposition(counts: np.ndarray, bounds: np.ndarray, n_ranks: int) -> None:
+    """
+    Logs how evenly the DM particles are split between domains, warning about idle ranks or a badly unbalanced split.
+    """
+    n_domains = len(bounds) - 1
+    per_domain = np.add.reduceat(counts, bounds[:-1])
+    mean = per_domain.mean()
+    logger.info(
+        f"FOF: box split into {n_domains} slab(s) of {np.diff(bounds).min()}-{np.diff(bounds).max()} cell planes; "
+        f"DM particles per slab {per_domain.min():,}-{per_domain.max():,} (mean {mean:,.0f})."
+    )
+
+    if n_domains < n_ranks:
+        logger.warning(
+            f"FOF: the cell grid ({len(counts)} cells per side) only allows {n_domains} slab(s), so "
+            f"{n_ranks - n_domains} of {n_ranks} ranks are idle during halo finding."
+        )
+    if mean > 0 and per_domain.max() > IMBALANCE_WARNING * mean:
+        logger.warning(
+            f"FOF: the busiest rank holds {per_domain.max() / mean:.1f}x the mean number of DM particles, as a dense "
+            f"region cannot be split into slabs thinner than {STENCIL_REACH} cell planes; halo finding will be slower "
+            "and that rank needs proportionally more memory."
+        )
 
 
 def balanced_bounds(counts: np.ndarray, n_domains: int, min_thickness: int) -> np.ndarray:

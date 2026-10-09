@@ -29,6 +29,8 @@ from ..version import __version__
 
 logger = get_logger()
 
+LARGEST_HALO_WARNING = 0.5  # warn when the largest halo holds more than this fraction of all DM particles
+
 
 class FOFHaloSource(HaloSource):
     """
@@ -164,7 +166,19 @@ class FOFHaloSource(HaloSource):
         steps = {"reading positions": t_read_dm + baryon_pos.read_time, **timings}
         breakdown = ", ".join(f"{step} {elapsed:.1f}s" for step, elapsed in steps.items())
         logger.info(f"FOF: halo finding completed in {perf_counter() - t_start:.1f}s ({breakdown}).")
-        logger.info(f"FOF: {n_haloes:,} field haloes | no subhalo information")
+
+        # haloes are ordered by size, so halo 0 is the largest
+        n_largest = int(np.count_nonzero(halo_ids["dm"] == 0))
+        if comm is not None:
+            n_largest = comm.allreduce(n_largest)
+        logger.info(f"FOF: {n_haloes:,} field haloes (largest: {n_largest:,} DM particles) | no subhalo information")
+
+        largest_fraction = n_largest / max(self.reader.particle_counts["dm"], 1)
+        if largest_fraction > LARGEST_HALO_WARNING and (comm is None or comm.rank == 0):
+            logger.warning(
+                f"FOF: the largest halo holds {largest_fraction:.0%} of all DM particles, which suggests the linking "
+                f"length is too large (halo_b = {self.b}) or that positions and box size are in different units."
+            )
 
         for ptype in ptypes:  # in the same order on every rank
             n_assigned = int(np.sum(halo_ids[ptype] != -1))

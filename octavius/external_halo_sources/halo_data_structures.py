@@ -90,7 +90,8 @@ def build_halo_source(config: OctaviusConfig, reader: SnapshotReader) -> HaloSou
         return FOFHaloSource(
             reader=reader,
             b=config.halo_b,
-            min_members=config.min_dm_per_halo,
+            # when storing haloes, keep the smaller ones too; the analysis still drops those below min_dm_per_halo
+            min_members=config.min_dm_per_halo_to_store if config.write_halo_ids else config.min_dm_per_halo,
             attach_ptypes=config.halo_attach_ptypes,
         )
 

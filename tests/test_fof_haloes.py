@@ -5,6 +5,7 @@ connected components), including haloes straddling the periodic boundary and sla
 
 """
 
+import logging
 from pathlib import Path
 
 import h5py
@@ -237,8 +238,7 @@ def fof_config(snapshot_path: Path, tmp_path: Path, sim_type: str, **overrides) 
         output_dir=tmp_path,
         cores_per_rank=1,
         photometry_table_path=None,
-        min_dm_per_halo=10,
-        **{"halo_id_source": "FOF", **overrides},
+        **{"halo_id_source": "FOF", "min_dm_per_halo": 10, **overrides},
     )
 
 
@@ -357,3 +357,87 @@ def test_pipeline_reuses_written_halo_ids(without_mpi: bool, tmp_path: Path, mon
     assert len(catalogues[0]["n_dm"]) == 3
     for key in catalogues[0]:
         assert np.array_equal(catalogues[0][key], catalogues[1][key])
+
+
+@pytest.fixture
+def octavius_warnings(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    """
+    The OCTAVIUS logger does not propagate, so attach caplog's handler to it directly.
+    """
+    logger = logging.getLogger("OCTAVIUS")
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.WARNING, logger="OCTAVIUS")
+    yield caplog
+    logger.removeHandler(caplog.handler)
+
+
+@pytest.mark.parametrize(("halo_b", "warns"), [(0.2, False), (1.8, True)])  # 1.8 links the whole box into one halo
+def test_warns_when_largest_halo_percolates(
+    halo_b: float, warns: bool, tmp_path: Path, octavius_warnings: pytest.LogCaptureFixture
+) -> None:
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_simba_snapshot(path=snapshot_path)
+    config = fof_config(snapshot_path, tmp_path, "SIMBA", halo_b=halo_b)
+    reader = build_reader(snapshot_path=snapshot_path, constants=OctaviusConstants(), config=config)
+
+    build_halo_source(config=config, reader=reader).read_halo_ids(ptypes=reader.available_ptypes)
+
+    assert any("largest halo holds" in r.getMessage() for r in octavius_warnings.records) == warns
+
+
+def test_min_dm_per_halo_to_store_validation(tmp_path: Path) -> None:
+    config = fof_config(tmp_path / "snapshot.hdf5", tmp_path, "SIMBA")
+    assert config.min_dm_per_halo_to_store == config.min_dm_per_halo
+
+    with pytest.raises(ValueError, match="min_dm_per_halo_to_store"):
+        fof_config(tmp_path / "snapshot.hdf5", tmp_path, "SIMBA", min_dm_per_halo_to_store=11)
+
+
+def test_stored_small_haloes_allow_lower_threshold_later(tmp_path: Path) -> None:
+    """
+    Haloes down to min_dm_per_halo_to_store are written to the snapshot but left out of that run's catalogue; a later
+    run reading them from the snapshot can then use a lower min_dm_per_halo.
+    """
+    snapshot_path = tmp_path / "snapshot.hdf5"
+    generate_simba_snapshot(path=snapshot_path)
+    strip_halo_ids(snapshot_path, "HaloID")
+
+    # the background varies between synthetic snapshots, so plant a 2-particle group: move one isolated DM particle
+    # next to another
+    with h5py.File(snapshot_path, "r+") as f:
+        pos = f["PartType1/Coordinates"]
+        boxsize = f["Header"].attrs["BoxSize"]
+        isolated = np.flatnonzero(find_fof_haloes(dm_pos=pos[...], boxsize=boxsize, b=0.6, min_members=2)["dm"] == -1)
+        pos[isolated[1]] = pos[isolated[0]] + 1e-3
+
+    n_haloes = []
+    for run, min_dm in (("first", 10), ("second", 2)):
+        output_dir = tmp_path / run
+        output_dir.mkdir()
+        config = fof_config(
+            snapshot_path,
+            output_dir,
+            "SIMBA",
+            halo_id_source="SNAP_OR_FOF",
+            write_halo_ids=True,
+            halo_b=0.6,
+            min_dm_per_halo=min_dm,
+            min_dm_per_halo_to_store=2,
+            compress_catalogue=False,
+            stages={
+                "find_galaxies": False,
+                "properties_core": True,
+                "properties_ptype_specific": False,
+                "properties_local_environment": False,
+                "photometry": False,
+            },
+        )
+        with h5py.File(analyse_snapshot(config=config), "r") as catalogue:
+            n_haloes.append(len(catalogue["halo_data/properties/core/n_dm"]))
+
+    with h5py.File(snapshot_path, "r") as f:
+        assert f["PartType1/HaloID"].attrs["min_dm_per_halo"] == 2
+        stored = np.bincount(f["PartType1/HaloID"][...])[1:]  # 1-indexed, 0 is no halo
+
+    assert stored.min() == 2  # the planted group was stored
+    assert n_haloes == [np.sum(stored >= 10), len(stored)]

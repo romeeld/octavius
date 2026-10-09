@@ -72,6 +72,7 @@ class OctaviusConfig:
     - 'halo_b' is the equivalent for the built-in FOF halo finder (halo_id_source: FOF), in units of the mean DM interparticle separation. This is usually set to 0.2.
     - 'halo_attach_ptypes' lists the baryonic ptypes which the FOF halo finder attaches to haloes (all of them if None); unlisted ptypes are given no halo.
     - 'write_halo_ids' writes the FOF HaloIDs back into the snapshot (in its own halo ID dataset), so later runs can use halo_id_source: SNAPSHOT or SNAP_OR_FOF instead of repeating the halo finding.
+    - 'min_dm_per_halo_to_store' is the smallest halo (in DM particles) written to the snapshot with write_halo_ids; it defaults to min_dm_per_halo and may only be lower, so later runs can lower min_dm_per_halo. The analysis itself always uses min_dm_per_halo.
     - 'velocity_factor' is in units of the local velocity dispersion, and controls how many standard deviations from the local velocity dispersion a particle considers its neighbours to be linked in phase space.
     - FRAD is the radiative efficiency (in the accretion formula, usually 0.1).
     - MU is the mean molecular weight (in the virial scaling formulae, usually 0.6)
@@ -135,6 +136,7 @@ class OctaviusConfig:
     halo_b: float = 0.2
     halo_attach_ptypes: list[str] | None = None  # None attaches all baryonic ptypes
     write_halo_ids: bool = False
+    min_dm_per_halo_to_store: int | None = None  # None means min_dm_per_halo
 
     bands: list[str] = field(default_factory=lambda: ["all"])
     extinction_law: str = "COMPOSITE"
@@ -205,6 +207,13 @@ class OctaviusConfig:
         if self.write_halo_ids and self.halo_id_source not in FOF_HALO_SOURCES:
             raise ValueError(
                 f"'write_halo_ids' only applies to FOF halo finding, not halo_id_source '{self.halo_id_source}'."
+            )
+        if self.min_dm_per_halo_to_store is None:
+            object.__setattr__(self, "min_dm_per_halo_to_store", self.min_dm_per_halo)
+        if not 0 <= self.min_dm_per_halo_to_store <= self.min_dm_per_halo:
+            raise ValueError(
+                f"'min_dm_per_halo_to_store' ({self.min_dm_per_halo_to_store}) must be between 0 and "
+                f"'min_dm_per_halo' ({self.min_dm_per_halo})."
             )
         if self.write_halo_ids and sim_prefix == "TNG":
             raise ValueError("'write_halo_ids' is not supported for TNG, whose snapshots have no halo ID datasets.")

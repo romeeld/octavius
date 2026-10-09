@@ -76,15 +76,19 @@ def test_single_rank_matches_serial() -> None:
 
 # linking lengths give grids of 116 cells (many domains), 15 (a halo spanning the box; 3 planes per domain at 5 ranks)
 # and 9 (two domains at most, or fewer domains than ranks)
-@pytest.mark.parametrize("n_ranks", [2, 3, 5])
-def test_mpi_matches_serial(n_ranks: int) -> None:
+@pytest.mark.parametrize(
+    ("n_ranks", "force_messages"), [(2, False), (3, False), (5, False), (3, True)]
+)  # force_messages: exchange particles with the large-count fallback
+def test_mpi_matches_serial(n_ranks: int, force_messages: bool) -> None:
     mpirun = shutil.which("mpirun") or shutil.which("mpiexec")
     if mpirun is None:
         pytest.skip("mpirun not available")
 
     env = {**os.environ, "OMP_NUM_THREADS": "1", "NUMBA_NUM_THREADS": "1"}
     result = subprocess.run(
-        [mpirun, "-n", str(n_ranks), sys.executable, "-m", "tests.fof_mpi_worker", str(LINKING_LENGTH), "12", "20"],
+        [mpirun, "-n", str(n_ranks), sys.executable, "-m", "tests.fof_mpi_worker"]
+        + (["--force-messages"] if force_messages else [])
+        + [str(LINKING_LENGTH), "12", "20"],
         check=False,
         cwd=REPO_ROOT,
         env=env,
@@ -94,3 +98,23 @@ def test_mpi_matches_serial(n_ranks: int) -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_decomposition_warns_about_idle_ranks_and_imbalance(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    from octavius.galaxy_finding.fof_halo_mpi import log_decomposition
+
+    logger = logging.getLogger("OCTAVIUS")
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.WARNING, logger="OCTAVIUS")
+    try:
+        counts = np.ones(12, dtype=np.int64)
+        counts[0] = 1000  # one dense plane that can't be split
+        log_decomposition(counts=counts, bounds=np.array([0, 2, 4, 6, 8, 10, 12]), n_ranks=8)
+    finally:
+        logger.removeHandler(caplog.handler)
+
+    messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "2 of 8 ranks are idle" in messages
+    assert "busiest rank" in messages

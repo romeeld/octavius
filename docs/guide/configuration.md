@@ -107,7 +107,9 @@ Only used when `halo_id_source` is `FOF` (or `SNAP_OR_FOF` and the snapshot has 
 
 `halo_attach_ptypes`: which baryonic particle types (`gas`, `star`, `bh`) are attached to the halo of their nearest DM particle. Unlisted types are given no halo, so they will be absent from halo properties and galaxy finding; e.g. leaving out `star` means no galaxies are found (default: all baryonic types).
 
-`write_halo_ids`: write the FOF halo IDs into the snapshot, in the format's own halo ID dataset (`FOFGroupIDs` for SWIFT, `HaloID` for SIMBA), so later runs with `SNAPSHOT` or `SNAP_OR_FOF` can skip halo finding. The datasets record `halo_b`, `min_dm_per_halo`, `halo_attach_ptypes` and the Octavius version as attributes. Since haloes below `min_dm_per_halo` are not stored, later runs cannot use a lower threshold. Halo IDs which Octavius did not write are never overwritten, and if the snapshot cannot be opened for writing a warning is logged and the run continues. Not available for TNG (default: `false`).
+`write_halo_ids`: write the FOF halo IDs into the snapshot, in the format's own halo ID dataset (`FOFGroupIDs` for SWIFT, `HaloID` for SIMBA), so later runs with `SNAPSHOT` or `SNAP_OR_FOF` can skip halo finding. The datasets record `halo_b`, `min_dm_per_halo`, `halo_attach_ptypes` and the Octavius version as attributes. Haloes below `min_dm_per_halo_to_store` are not stored, so later runs cannot go below that threshold. Halo IDs which Octavius did not write are never overwritten, and if the snapshot cannot be opened for writing a warning is logged and the run continues. Not available for TNG (default: `false`).
+
+`min_dm_per_halo_to_store`: the smallest halo, in DM particles, written to the snapshot with `write_halo_ids`. It may be lower than `min_dm_per_halo` (but not higher), so that later runs can lower `min_dm_per_halo`; the current run's catalogue still only contains haloes with at least `min_dm_per_halo` DM particles (default: `min_dm_per_halo`).
 
 ## Aggregate Property Parameters
 
