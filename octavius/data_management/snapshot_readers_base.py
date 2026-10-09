@@ -74,6 +74,7 @@ class SnapshotReader(ABC):
         self.subset_indices: np.ndarray | None = None
         self.simulation_attributes: SimulationAttributes | None = None
 
+        self.derived_columns = dict(self.derived_columns)  # per instance, so subclasses don't add to a shared dict
         self.inverse_ptype_map = {v: k for k, v in self.ptype_map.items()}
         self.read_header()  # should set SimulationAttributes & particle_counts on self
 
@@ -471,6 +472,19 @@ class SwiftReader(SnapshotReader):
     column_indices = {
         "helium_fraction": 1,  # slice of 2D datasets
     }
+
+    def __init__(self, snapshot_path: Path, constants: OctaviusConstants, n_io_chunks: int) -> None:
+
+        super().__init__(snapshot_path, constants, n_io_chunks)
+        self.derived_columns["sfr"] = self._derive_sfr
+
+    def _derive_sfr(self, ptype: str = "gas") -> np.ndarray:
+        """
+        Reads gas SFRs, zeroing SWIFT's negative values: for gas which is no longer star-forming, SWIFT stores minus the
+        scale factor (or time) at which it last formed stars, which is not an SFR and must not be summed or weighted by.
+        """
+        sfr = self._read_raw(ptype=ptype, dataset="sfr")
+        return np.maximum(sfr, 0.0, out=sfr)
 
     def read_header(self) -> SimulationAttributes:
         """
