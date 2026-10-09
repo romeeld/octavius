@@ -84,7 +84,15 @@ def test_mpi_matches_serial(n_ranks: int, force_messages: bool) -> None:
     if mpirun is None:
         pytest.skip("mpirun not available")
 
-    env = {**os.environ, "OMP_NUM_THREADS": "1", "NUMBA_NUM_THREADS": "1"}
+    env = {
+        # pytest's own process has initialised MPI, whose launcher variables would confuse a nested mpirun
+        **{k: v for k, v in os.environ.items() if not k.startswith(("OMPI_", "PMIX_", "PMI_", "PRTE_"))},
+        "OMP_NUM_THREADS": "1",
+        "NUMBA_NUM_THREADS": "1",
+        # Open MPI (4, 5) refuses more ranks than cores, e.g. on 4-core CI runners; MPICH ignores these
+        "OMPI_MCA_rmaps_base_oversubscribe": "1",
+        "PRTE_MCA_rmaps_default_mapping_policy": ":oversubscribe",
+    }
     result = subprocess.run(
         [mpirun, "-n", str(n_ranks), sys.executable, "-m", "tests.fof_mpi_worker"]
         + (["--force-messages"] if force_messages else [])
