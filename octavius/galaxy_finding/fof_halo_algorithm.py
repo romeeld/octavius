@@ -11,8 +11,12 @@ pre-identified haloes to parallelise over, so the whole (periodic) box is linked
 2. Split the grid into slabs of contiguous x-planes. Because the flat index is row-major, each slab is a contiguous
    range of the sorted arrays, so slabs can be linked in parallel (prange) without touching each other's parents.
 3. Links which cross a slab boundary (including the periodic wrap in x) are made in a short serial pass afterwards.
-4. Groups below min_members are discarded; the remainder are relabelled 0..n-1 in descending size order.
+4. Groups below min_members are discarded; the remainder are relabelled 0..n-1 in descending size order (ties go to
+   the group containing the lowest snapshot index, so the labels are the same however the box is divided).
 5. Baryons inherit the HaloID of their nearest DM particle within the linking length (as in SWIFT).
+
+fof_halo_mpi.py runs the same kernels on a slab of the box per MPI rank; the kernels therefore take the grid's first
+x-plane (x_offset) and number of x-planes (n_planes), and only wrap in x when the grid is the whole box (periodic_x).
 
 Optimisations relative to a naïve port of dispatch_fof6d:
 
@@ -96,17 +100,7 @@ def find_fof_haloes(
 
     if linking_length is None:
         linking_length = b * boxsize / np.cbrt(n_dm)
-
-    n_cells_per_dim = int(np.ceil(boxsize * CELLS_PER_LINKING_LENGTH / linking_length))
-    if n_cells_per_dim < 2 * STENCIL_REACH + 1:  # otherwise the periodic stencil would visit cells twice
-        raise ValueError(
-            f"Linking length {linking_length} is too large for the box ({boxsize}); periodic FOF is ill-defined."
-        )
-
-    if n_slabs is None:
-        n_slabs = 8 * get_num_threads()
-    n_slabs = max(1, min(n_slabs, n_cells_per_dim // STENCIL_REACH))  # slabs at least STENCIL_REACH planes thick
-    slab_bounds = np.linspace(0, n_cells_per_dim, n_slabs + 1).astype(np.int64)  # x-plane boundaries
+    n_cells_per_dim = cells_per_dimension(boxsize=boxsize, linking_length=linking_length)
 
     sort_order, sorted_pos, cell_offsets, unique_cells, row_offsets = build_periodic_cell_list(
         pos=dm_pos, boxsize=boxsize, n_cells_per_dim=n_cells_per_dim
@@ -122,9 +116,11 @@ def find_fof_haloes(
         n_cells_per_dim=n_cells_per_dim,
         boxsize=boxsize,
         linking_length=linking_length,
-        slab_bounds=slab_bounds,
+        slab_bounds=thread_slab_bounds(n_planes=n_cells_per_dim, n_slabs=n_slabs),
+        x_offset=0,
+        periodic_x=True,
     )
-    labels_sorted = label_groups(parents=parents, min_members=min_members)
+    labels_sorted = label_groups(parents=parents, min_members=min_members, tiebreak=sort_order)
     del parents
 
     halo_ids = {"dm": np.empty(n_dm, dtype=np.int64)}
@@ -146,25 +142,62 @@ def find_fof_haloes(
             n_cells_per_dim=n_cells_per_dim,
             boxsize=boxsize,
             linking_length=linking_length,
+            x_offset=0,
+            n_planes=n_cells_per_dim,
+            periodic_x=True,
         )
     timings["attaching baryons"] = perf_counter() - t0
 
     return halo_ids
 
 
+def cells_per_dimension(boxsize: float, linking_length: float) -> int:
+    """
+    Returns the number of cells along each side of the box, such that a cell's diagonal is at most the linking length.
+    """
+    n_cells_per_dim = int(np.ceil(boxsize * CELLS_PER_LINKING_LENGTH / linking_length))
+    if n_cells_per_dim < 2 * STENCIL_REACH + 1:  # otherwise the periodic stencil would visit cells twice
+        raise ValueError(
+            f"Linking length {linking_length} is too large for the box ({boxsize}); periodic FOF is ill-defined."
+        )
+
+    return n_cells_per_dim
+
+
+def thread_slab_bounds(n_planes: int, n_slabs: int | None = None) -> np.ndarray:
+    """
+    Returns the x-plane boundaries of the slabs linked in parallel by link_haloes(); defaults to 8 per thread for load
+    balancing, and slabs are at least STENCIL_REACH planes thick.
+    """
+    if n_slabs is None:
+        n_slabs = 8 * get_num_threads()
+    n_slabs = max(1, min(n_slabs, n_planes // STENCIL_REACH))
+
+    return np.linspace(0, n_planes, n_slabs + 1).astype(np.int64)
+
+
 def build_periodic_cell_list(
-    pos: np.ndarray, boxsize: float, n_cells_per_dim: int
+    pos: np.ndarray, boxsize: float, n_cells_per_dim: int, x_offset: int = 0, n_planes: int | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Partitions particles into a sparse, periodic cell linked-list. Returns a tuple of arrays:
+    Partitions particles into a sparse, periodic cell linked-list. By default the grid covers the whole box; for a
+    domain of an MPI decomposition it covers only the n_planes x-planes starting at plane x_offset (wrapping), which
+    every particle must lie in. Returns a tuple of arrays:
 
     - sort_order: the indices to sort particles by cell
     - sorted_pos: positions in cell order, wrapped into [0, boxsize)
     - cell_offsets: where each occupied cell begins in the sorted arrays (csr offsets)
     - unique_cells: the flat cell idx of each occupied cell
-    - row_offsets: where each (x, y) row of cells begins in unique_cells (dense, n_cells_per_dim^2 + 1 entries)
+    - row_offsets: where each (x, y) row of cells begins in unique_cells (dense, n_planes * n_cells_per_dim + 1 entries)
+
+    Cell x coordinates (and so flat indices) are relative to x_offset.
     """
-    flat_cell_idx = compute_flat_cell_indices(pos=pos, boxsize=boxsize, n_cells_per_dim=n_cells_per_dim)
+    if n_planes is None:
+        n_planes = n_cells_per_dim
+
+    flat_cell_idx = compute_flat_cell_indices(
+        pos=pos, boxsize=boxsize, n_cells_per_dim=n_cells_per_dim, x_offset=x_offset
+    )
     sort_order = np.argsort(flat_cell_idx)  # numpy's (SIMD) argsort is faster than numba's here
     flat_cell_idx = flat_cell_idx[sort_order]
 
@@ -178,7 +211,7 @@ def build_periodic_cell_list(
 
     sorted_pos = gather_wrapped_positions(pos=pos, order=sort_order, boxsize=boxsize)
 
-    row_starts = np.arange(n_cells_per_dim * n_cells_per_dim + 1, dtype=np.int64) * n_cells_per_dim
+    row_starts = np.arange(n_planes * n_cells_per_dim + 1, dtype=np.int64) * n_cells_per_dim
     row_offsets = np.searchsorted(unique_cells, row_starts)
 
     return sort_order, sorted_pos, cell_offsets, unique_cells, row_offsets
@@ -202,20 +235,34 @@ def gather_wrapped_positions(pos: np.ndarray, order: np.ndarray, boxsize: float)
 
 
 @njit(cache=True, parallel=True)
-def compute_flat_cell_indices(pos: np.ndarray, boxsize: float, n_cells_per_dim: int) -> np.ndarray:
+def compute_flat_cell_indices(pos: np.ndarray, boxsize: float, n_cells_per_dim: int, x_offset: int) -> np.ndarray:
     """
-    Returns the row-major flat cell index of each particle on a periodic grid of n_cells_per_dim^3 cells.
+    Returns the row-major flat cell index of each particle on a periodic grid of n_cells_per_dim^3 cells, with the x
+    cell coordinate counted from plane x_offset (wrapping).
     """
     n_particles = len(pos)
     flat_cell_idx = np.empty(n_particles, dtype=np.int64)
 
     for i in prange(n_particles):
-        cx = _periodic_cell_coordinate(pos[i, 0], boxsize, n_cells_per_dim)
+        cx = _local_plane(pos[i, 0], boxsize, n_cells_per_dim, x_offset)
         cy = _periodic_cell_coordinate(pos[i, 1], boxsize, n_cells_per_dim)
         cz = _periodic_cell_coordinate(pos[i, 2], boxsize, n_cells_per_dim)
         flat_cell_idx[i] = (cx * n_cells_per_dim + cy) * n_cells_per_dim + cz
 
     return flat_cell_idx
+
+
+@njit(cache=True, parallel=True)
+def compute_cell_planes(pos: np.ndarray, boxsize: float, n_cells_per_dim: int) -> np.ndarray:
+    """
+    Returns the (global) x cell coordinate of each particle, i.e. which x-plane of cells it lies in.
+    """
+    planes = np.empty(len(pos), dtype=np.int64)
+
+    for i in prange(len(pos)):
+        planes[i] = _periodic_cell_coordinate(pos[i, 0], boxsize, n_cells_per_dim)
+
+    return planes
 
 
 @njit(cache=True, parallel=True)
@@ -228,11 +275,15 @@ def link_haloes(
     boxsize: float,
     linking_length: float,
     slab_bounds: np.ndarray,
+    x_offset: int,
+    periodic_x: bool,
 ) -> np.ndarray:
     """
-    NOTE: positions must be sorted by cell (from build_periodic_cell_list).
+    NOTE: positions must be sorted by cell (from build_periodic_cell_list, with the same x_offset).
 
-    Periodic 3D friends-of-friends over the whole box; returns an array of root parent indices (in sorted order).
+    3D friends-of-friends over the cell grid; returns an array of root parent indices (in sorted order). slab_bounds
+    span the grid's x-planes. If periodic_x, the grid is the whole box and links wrap in x; otherwise it is an MPI
+    domain (plus ghost planes) and nothing is linked beyond its last plane. Links always wrap in y and z.
     """
     n_particles = len(positions)
     n_cells = len(unique_cells)
@@ -241,6 +292,7 @@ def link_haloes(
     linking_length_sq = linking_length**2
     plane_size = n_cells_per_dim * n_cells_per_dim
     n_slabs = len(slab_bounds) - 1
+    n_planes = slab_bounds[-1]
 
     # cells are internally connected by construction: root each at its first particle
     for k in prange(n_cells):
@@ -259,7 +311,7 @@ def link_haloes(
         for k in range(k_start, k_end):
             _link_cell(
                 positions, parents, rank, cell_offsets, unique_cells, row_offsets, k, n_cells_per_dim, boxsize,
-                linking_length_sq, last_plane, False,
+                linking_length_sq, last_plane, False, n_planes, x_offset, periodic_x,
             )
 
     # serial pass: links from each slab's last STENCIL_REACH planes into the next slab (wrapping periodically)
@@ -272,7 +324,7 @@ def link_haloes(
         for k in range(k_start, k_end):
             _link_cell(
                 positions, parents, rank, cell_offsets, unique_cells, row_offsets, k, n_cells_per_dim, boxsize,
-                linking_length_sq, last_plane, True,
+                linking_length_sq, last_plane, True, n_planes, x_offset, periodic_x,
             )
 
     for i in range(n_particles):
@@ -295,6 +347,9 @@ def _link_cell(
     linking_length_sq: float,
     last_plane: int,
     crossing_slab: bool,
+    n_planes: int,
+    x_offset: int,
+    periodic_x: bool,
 ) -> None:
     """
     Links occupied cell k to its half-stencil neighbours; mutates parents/rank in place. Only visits neighbours beyond
@@ -309,8 +364,11 @@ def _link_cell(
     for r in range(len(HALF_ROWS)):
         if (cx + HALF_ROWS[r, 0] > last_plane) != crossing_slab:
             continue
+        x = _neighbour_plane(cx, HALF_ROWS[r, 0], n_planes, periodic_x)
+        if x < 0:
+            continue  # beyond the domain's ghost planes
 
-        row = ((cx + HALF_ROWS[r, 0]) % n_cells_per_dim) * n_cells_per_dim + (cy + HALF_ROWS[r, 1]) % n_cells_per_dim
+        row = x * n_cells_per_dim + (cy + HALF_ROWS[r, 1]) % n_cells_per_dim
         z_lo_0, z_hi_0, z_lo_1, z_hi_1 = _wrapped_window(cz + HALF_ROWS[r, 2], cz + STENCIL_REACH, n_cells_per_dim)
 
         for segment in range(2):
@@ -324,9 +382,22 @@ def _link_cell(
 
                 if _any_pair_within(
                     positions, start, end, cell_id, neighbour_start, cell_offsets[kn + 1], unique_cells[kn],
-                    n_cells_per_dim, boxsize, linking_length_sq,
+                    n_cells_per_dim, boxsize, linking_length_sq, x_offset,
                 ):
                     union(parent=parents, rank=rank, idx_i=start, idx_j=neighbour_start)
+
+
+@njit(cache=True)
+def _neighbour_plane(cx: int, dx: int, n_planes: int, periodic_x: bool) -> int:
+    """
+    Returns the grid x-plane dx away from plane cx, or -1 if it lies outside a non-periodic grid.
+    """
+    x = cx + dx
+    if periodic_x:
+        return x % n_planes
+    if x < 0 or x >= n_planes:
+        return -1
+    return x
 
 
 @njit(cache=True)
@@ -372,6 +443,7 @@ def _any_pair_within(
     n_cells_per_dim: int,
     boxsize: float,
     linking_length_sq: float,
+    x_offset: int,
 ) -> bool:
     """
     Whether any particle of cell a is within the linking length of any particle of cell b; stops at the first. For
@@ -385,10 +457,14 @@ def _any_pair_within(
                     return True
         return False
 
-    candidates_a = _particles_near_cell(positions, a_start, a_end, b_cell, n_cells_per_dim, boxsize, linking_length_sq)
+    candidates_a = _particles_near_cell(
+        positions, a_start, a_end, b_cell, n_cells_per_dim, boxsize, linking_length_sq, x_offset
+    )
     if len(candidates_a) == 0:
         return False
-    candidates_b = _particles_near_cell(positions, b_start, b_end, a_cell, n_cells_per_dim, boxsize, linking_length_sq)
+    candidates_b = _particles_near_cell(
+        positions, b_start, b_end, a_cell, n_cells_per_dim, boxsize, linking_length_sq, x_offset
+    )
 
     for i in candidates_a:
         for j in candidates_b:
@@ -407,14 +483,16 @@ def _particles_near_cell(
     n_cells_per_dim: int,
     boxsize: float,
     linking_length_sq: float,
+    x_offset: int,
 ) -> np.ndarray:
     """
-    Returns the indices in [start, end) of particles within the linking length of the bounds of cell cell_id.
+    Returns the indices in [start, end) of particles within the linking length of the bounds of cell cell_id (whose x
+    coordinate is counted from plane x_offset).
     """
     cell_size = boxsize / n_cells_per_dim
     half_cell, half_box = 0.5 * cell_size, 0.5 * boxsize
     centre = np.empty(3)
-    centre[0] = (cell_id // (n_cells_per_dim * n_cells_per_dim) + 0.5) * cell_size
+    centre[0] = ((cell_id // (n_cells_per_dim * n_cells_per_dim) + x_offset) % n_cells_per_dim + 0.5) * cell_size
     centre[1] = ((cell_id // n_cells_per_dim) % n_cells_per_dim + 0.5) * cell_size
     centre[2] = (cell_id % n_cells_per_dim + 0.5) * cell_size
 
@@ -436,19 +514,34 @@ def _particles_near_cell(
     return near[:n_near]
 
 
-def label_groups(parents: np.ndarray, min_members: int) -> np.ndarray:
+def label_groups(parents: np.ndarray, min_members: int, tiebreak: np.ndarray) -> np.ndarray:
     """
     Converts root parent indices to contiguous HaloIDs ordered by descending group size; groups with fewer than
-    min_members particles are given the sentinel -1.
+    min_members particles are given the sentinel -1. Equal-sized groups are ordered by the smallest tiebreak value
+    of their members (the original particle index), so the ordering does not depend on how the box was divided.
     """
     lookup = np.bincount(parents, minlength=len(parents))  # group sizes, indexed by root
     roots = np.flatnonzero(lookup >= max(min_members, 1))
-    roots = roots[np.argsort(-lookup[roots], kind="stable")]  # largest first, ties broken by root index
+    first_member = min_per_root(parents=parents, values=tiebreak, mask=np.ones(len(parents), dtype=np.bool_))
+    roots = roots[np.lexsort((first_member[roots], -lookup[roots]))]  # largest first
 
     lookup[:] = -1  # reuse the buffer as the root -> HaloID map
     lookup[roots] = np.arange(len(roots), dtype=np.int64)
 
     return lookup[parents]
+
+
+@njit(cache=True)
+def min_per_root(parents: np.ndarray, values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """
+    Returns, indexed by root, the smallest value over each group's masked members (int64 max if it has none).
+    """
+    out = np.full(len(parents), np.iinfo(np.int64).max, dtype=np.int64)
+    for i in range(len(parents)):
+        if mask[i] and values[i] < out[parents[i]]:
+            out[parents[i]] = values[i]
+
+    return out
 
 
 @njit(cache=True, parallel=True)
@@ -462,9 +555,13 @@ def attach_to_nearest_dm(
     n_cells_per_dim: int,
     boxsize: float,
     linking_length: float,
+    x_offset: int,
+    n_planes: int,
+    periodic_x: bool,
 ) -> np.ndarray:
     """
-    NOTE: dm_positions/dm_labels must be in the DM cell order (from build_periodic_cell_list).
+    NOTE: dm_positions/dm_labels must be in the DM cell order (from build_periodic_cell_list, with the same x_offset
+    and n_planes). On an MPI domain, positions must lie at least STENCIL_REACH planes inside the grid's x range.
 
     Returns the HaloID of each particle's nearest DM particle within the linking length, or -1 if there is none.
     """
@@ -473,7 +570,7 @@ def attach_to_nearest_dm(
     linking_length_sq = linking_length**2
     cell_size_sq = (boxsize / n_cells_per_dim) ** 2
     for i in prange(n_particles):
-        cx = _periodic_cell_coordinate(positions[i, 0], boxsize, n_cells_per_dim)
+        cx = _local_plane(positions[i, 0], boxsize, n_cells_per_dim, x_offset)
         cy = _periodic_cell_coordinate(positions[i, 1], boxsize, n_cells_per_dim)
         cz = _periodic_cell_coordinate(positions[i, 2], boxsize, n_cells_per_dim)
 
@@ -481,7 +578,7 @@ def attach_to_nearest_dm(
         # within the linking length) and every cell that could hold a closer one agrees, that is the answer
         label, is_uniform = _uniform_neighbour_label(
             dm_labels, cell_offsets, unique_cells, row_offsets, cx, cy, cz, n_cells_per_dim, linking_length_sq,
-            cell_size_sq,
+            cell_size_sq, n_planes, periodic_x,
         )
         if is_uniform:
             halo_ids[i] = label
@@ -493,8 +590,11 @@ def attach_to_nearest_dm(
         for r in range(len(FULL_ROWS)):  # nearest-first, so stop once no closer particle is possible
             if FULL_ROW_GAPS_SQ[r] * cell_size_sq > best_dist_sq:
                 break
+            x = _neighbour_plane(cx, FULL_ROWS[r, 0], n_planes, periodic_x)
+            if x < 0:
+                continue
 
-            row = ((cx + FULL_ROWS[r, 0]) % n_cells_per_dim) * n_cells_per_dim + (cy + FULL_ROWS[r, 1]) % n_cells_per_dim
+            row = x * n_cells_per_dim + (cy + FULL_ROWS[r, 1]) % n_cells_per_dim
             z_lo_0, z_hi_0, z_lo_1, z_hi_1 = _wrapped_window(cz - STENCIL_REACH, cz + STENCIL_REACH, n_cells_per_dim)
 
             for segment in range(2):
@@ -529,6 +629,8 @@ def _uniform_neighbour_label(
     n_cells_per_dim: int,
     linking_length_sq: float,
     cell_size_sq: float,
+    n_planes: int,
+    periodic_x: bool,
 ) -> tuple[int, bool]:
     """
     Returns (label, True) if cell (cx, cy, cz) holds DM and every occupied cell within the linking length of it has the
@@ -544,8 +646,11 @@ def _uniform_neighbour_label(
     for r in range(len(FULL_ROWS)):
         if FULL_ROW_GAPS_SQ[r] * cell_size_sq > linking_length_sq:
             break
+        x = _neighbour_plane(cx, FULL_ROWS[r, 0], n_planes, periodic_x)
+        if x < 0:
+            continue
 
-        row = ((cx + FULL_ROWS[r, 0]) % n_cells_per_dim) * n_cells_per_dim + (cy + FULL_ROWS[r, 1]) % n_cells_per_dim
+        row = x * n_cells_per_dim + (cy + FULL_ROWS[r, 1]) % n_cells_per_dim
         z_lo_0, z_hi_0, z_lo_1, z_hi_1 = _wrapped_window(cz - STENCIL_REACH, cz + STENCIL_REACH, n_cells_per_dim)
 
         for segment in range(2):
@@ -579,6 +684,14 @@ def _periodic_cell_coordinate(x: float, boxsize: float, n_cells_per_dim: int) ->
     """
     c = int((x % boxsize) * n_cells_per_dim / boxsize)
     return min(c, n_cells_per_dim - 1)  # guards float rounding at x -> boxsize
+
+
+@njit(cache=True)
+def _local_plane(x: float, boxsize: float, n_cells_per_dim: int, x_offset: int) -> int:
+    """
+    Returns the x cell coordinate of a position on a grid whose first plane is global plane x_offset (wrapping).
+    """
+    return (_periodic_cell_coordinate(x, boxsize, n_cells_per_dim) - x_offset) % n_cells_per_dim
 
 
 @njit(cache=True)
