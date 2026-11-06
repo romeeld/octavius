@@ -12,6 +12,13 @@ For photometry, please specify the optional dependency as such:
 pip install "octavius[photometry]"
 ```
 
+For mock X-ray observations (with moxha), and also moxha's profile and spectral fitting, install the X-ray extras (see [Mock X-ray Observations](../guide/xray.md)):
+
+```bash
+pip install "octavius[xray]"
+pip install "octavius[xray-fitting]"
+```
+
 For developers, please either clone or fork and specify the developer tools.
 
 ```bash
