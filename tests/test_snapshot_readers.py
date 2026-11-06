@@ -8,11 +8,12 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 from octavius.data_management import OctaviusConstants
 from octavius.data_management.conventions import OctaviusConfig
 from octavius.data_management.snapshot_readers import build_reader
-from octavius.utils.generate_snapshots import generate_simba_snapshot, generate_swift_snapshot
+from octavius.utils.generate_snapshots import generate_simba_snapshot, generate_swift_snapshot, generate_tng_snapshot
 
 CONFIG_PATH = Path(__file__).parent.parent / "octavius" / "config.yaml"
 
@@ -20,6 +21,7 @@ CONFIG_PATH = Path(__file__).parent.parent / "octavius" / "config.yaml"
 def make_reader(snapshot_path: Path, sim_type: str):
     config = OctaviusConfig.from_yaml(
         config_path=CONFIG_PATH,
+        halo_id_source="SUBFIND" if sim_type == "TNG" else "SNAPSHOT",
         simulation_type=sim_type,
         snapshot_path=snapshot_path,
         output_dir=snapshot_path.parent,
@@ -75,3 +77,57 @@ def test_derived_columns_are_per_reader(tmp_path: Path) -> None:
 
     assert "sfr" in swift.derived_columns and "sfr" not in simba.derived_columns
     assert "mass_HI" in simba.derived_columns and "mass_HI" not in swift.derived_columns  # KIARA stores HI masses
+
+
+def test_element_fractions(tmp_path: Path) -> None:
+    """
+    Oxygen is column 4 of the element mass fractions in SIMBA, SWIFT and TNG (8 in SIMBA-C); check fraction_O reads it.
+
+    AI-generated: claude-opus-5-5
+    """
+    simba_path, swift_path, tng_path = tmp_path / "simba.hdf5", tmp_path / "swift.hdf5", tmp_path / "tng.hdf5"
+    generate_simba_snapshot(path=simba_path)
+    generate_swift_snapshot(path=swift_path, model="KIARA")
+    generate_tng_snapshot(path=tng_path, subfind_path=tmp_path / "subfind.hdf5")
+
+    for snapshot_path, sim_type, element_dataset in [
+        (simba_path, "SIMBA", "Metallicity"),
+        (swift_path, "SWIFT-KIARA", "ElementMassFractions"),
+        (tng_path, "TNG", "GFM_Metals"),
+    ]:
+        reader = make_reader(snapshot_path, sim_type)
+        assert "O" in reader.available_elements
+
+        with h5py.File(snapshot_path, "r") as f:
+            raw_oxygen = f["PartType0"][element_dataset][:, 4]
+
+        np.testing.assert_allclose(read_all(reader, "gas", "fraction_O"), raw_oxygen)
+
+    # SIMBA-C stores the Chem5 elements, with oxygen in column 8
+    simba_c = make_reader(simba_path, "SIMBA-C")
+    with h5py.File(simba_path, "r") as f:
+        raw_oxygen = f["PartType0/Metallicity"][:, 8]
+
+    np.testing.assert_allclose(read_all(simba_c, "gas", "fraction_O"), raw_oxygen)
+
+
+def test_missing_elements(tmp_path: Path) -> None:
+    """
+    Requesting an element the snapshot does not have should raise an error listing the elements it does have.
+
+    AI-generated: claude-opus-5-5
+    """
+    simba_path, swift_path = tmp_path / "simba.hdf5", tmp_path / "swift.hdf5"
+    generate_simba_snapshot(path=simba_path)
+    generate_swift_snapshot(path=swift_path, model="KIARA")
+
+    # zinc is not among the 11 SWIFT elements
+    swift = make_reader(swift_path, "SWIFT-KIARA")
+    with pytest.raises(KeyError, match="Zn is not among the elements.*Elements available: H, He, C"):
+        read_all(swift, "gas", "fraction_Zn")
+
+    # the mock snapshot has 11 Metallicity columns but SIMBA-C expects the full Chem5 list, so iron is missing
+    simba_c = make_reader(simba_path, "SIMBA-C")
+    assert simba_c.available_elements[-1] == "Ne"
+    with pytest.raises(KeyError, match="Fe is not among the elements"):
+        read_all(simba_c, "gas", "fraction_Fe")
