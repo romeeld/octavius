@@ -14,6 +14,11 @@ if TYPE_CHECKING:
 # other packages
 import numpy as np
 
+# internal imports
+from ..log import get_logger
+
+logger = get_logger()
+
 
 # moxha field names (as yt's GIZMO frontend names them) of the optional gas quantities, with their units
 MOXHA_EXTRA_FIELDS = {
@@ -21,6 +26,10 @@ MOXHA_EXTRA_FIELDS = {
     "wind_delay_time": ("DelayTime", "Gyr"),
     "internal_energy": ("specific_thermal_energy", "cm**2/s**2"),
 }
+
+# quantities given to moxha as zeros when the snapshot lacks them, so cuts on them always work: without wind data, no
+# particle is treated as a wind
+ZERO_IF_MISSING = ["wind_delay_time"]
 
 # moxha (GIZMO) names of the other particle types
 MOXHA_PTYPES = {"dm": "PartType1", "star": "PartType4", "bh": "PartType5"}
@@ -52,6 +61,12 @@ def dataset_from_xray_gas(gas: XrayGas) -> Any:
     """
     _, dataset_from_gas_particles, _ = _import_moxha()
     columns = gas.columns
+
+    columns = dict(columns)  # leave the XrayGas as read
+    for name in ZERO_IF_MISSING:
+        if name not in columns:
+            logger.info(f"The snapshot has no {name}, so moxha is given zeros for {MOXHA_EXTRA_FIELDS[name][0]}.")
+            columns[name] = np.zeros(gas.n_particles)
 
     extra_fields = {
         field_name: (columns[name], unit) for name, (field_name, unit) in MOXHA_EXTRA_FIELDS.items() if name in columns
