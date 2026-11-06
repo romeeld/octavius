@@ -43,6 +43,11 @@ classifiers = [
 photometry = [
     "fsps>=0.5.0",
 ]
+xray = [  # mock X-ray observations; moxha itself is installed from its repository
+    "yt>=4.4",
+    "pyxsim>=4.4",
+    "soxs>=5.0",
+]
 test = [
     "pytest>=8.0", 
     "pytest-cov>=5.0",

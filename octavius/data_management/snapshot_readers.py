@@ -71,6 +71,7 @@ class KiaraReader(SwiftReader):
         "mass_HI": "AtomicHydrogenMasses",
         "mass_H2": "MolecularHydrogenMasses",
         "dust_mass": "DustMasses",
+        "wind_delay_time": "DecouplingDelayTimes",
     }
 
 
@@ -173,6 +174,7 @@ class SimbaReader(GadgetReader):
         "dust_mass": "Dust_Masses",
         "smoothing_length": "SmoothingLength",
         "potential": "Potential",
+        "wind_delay_time": "DelayTime",
     }
 
     id_map = {
