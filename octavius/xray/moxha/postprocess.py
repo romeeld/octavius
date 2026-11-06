@@ -1,3 +1,11 @@
+"""
+
+Post-processes mock X-ray observations: event files, images, exposure maps and point-source handling.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.cosmology import FlatLambdaCDM
@@ -297,7 +305,8 @@ class PostProcess:
                 overwrite=True,
             )
             f = fits.open(img_fitsfile, mode="update")
-            f[hdu].data = ndimage.gaussian_filter(f[hdu].data, sigma=3)
+            # FIXME: hdu is never defined here, so this raises a NameError; probably the image HDU written by soxs.write_image (0?)
+            f[hdu].data = ndimage.gaussian_filter(f[hdu].data, sigma=3)  # noqa: F821
             f.close()
             fig, ax = soxs.plot_image(
                 img_fitsfile,

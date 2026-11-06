@@ -1,3 +1,17 @@
+"""
+
+Fits radial profiles of mock X-ray observations (density, temperature, pressure, entropy, mass) and the
+resulting scaling relations.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
+# the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
+from ..extras import XRAY_FITTING_PACKAGES, require_packages
+
+require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray profile fitting")
+
 from scipy.optimize import minimize
 import astropy.io.fits as pyfits
 from scipy.signal import savgol_filter
@@ -9,6 +23,7 @@ import logging
 from tqdm import tqdm
 from IPython.display import display, Math
 import os
+import sys
 import math
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as u
@@ -2779,7 +2794,7 @@ class HaloAnalysis:
             return
 
         # Test all more massive halos for closeness
-        min_sep = 1e10 * kpc
+        min_sep = 1e10 * unyt.kpc
         print("checking near halo")
         for i, _ in tqdm(enumerate(halo_R500_list)):
             if halo_M500_list[i].to("solMass") <= self.M500_truth.to("solMass"):
@@ -2818,7 +2833,6 @@ class HaloAnalysis:
         """
         import soxs
 
-        soxs.set_soxs_config("soxs_data_dir", "./CODE/instr_files/")
         from soxs.instrument_registry import instrument_registry
         from astropy.units import arcsec, radian
 
@@ -4136,6 +4150,8 @@ class HaloSample:
         # plt.rcParams["mathtext.fontset"] = "custom"
         # plt.rcParams['font.family'] = 'Monospace' #'STIXGeneral'
 
+    # FIXME: this method uses names that are not defined in it (sample_arr, _logger, cosmo, redshift, Xray_HSE_R500*,
+    # _bkgrnd_evts_path, _bkgrnd_idx_instr_tag), apparently from when it was a function, so it raises a NameError
     def measure_Xray_flux(self, emin, emax, halo_idx):
         """
         To calculate flux/luminosity we create linearly-spaced energy bins between emin and emax and use SOXS to create an exposure map at the energy corresponding to the bin midpoint. We then calculate the counts flux in radial (arcsec) bins within the desired aperture (for L_x(R500), we use just a single bin from the center to R500) and multiply by the bin energy midpoint to convert to an energy flux. We repeat for all energy bins and sum the energy fluxes to give a total energy flux, which is then converted to a luminosity via the luminosity distance. Here we do this in post-processing so that we can quickly add luminosites to tweaked fits without having to do this time-consumin step whilst calculating profile fits.
@@ -4149,11 +4165,10 @@ class HaloSample:
         """
         import soxs
 
-        soxs.set_soxs_config("soxs_data_dir", "./CODE/instr_files/")
         from soxs.instrument_registry import instrument_registry
         from astropy.units import arcsec, radian
 
-        index_into_sample_arr = int(*[i for i in range(len(sample_arr)) if sample_arr[i]["idx"] == halo_idx])
+        index_into_sample_arr = int(*[i for i in range(len(sample_arr)) if sample_arr[i]["idx"] == halo_idx])  # noqa: F821
         halo_dict = self.sample_arr[index_into_sample_arr]
 
         halo_idx = halo_dict["idx"]
@@ -4181,7 +4196,7 @@ class HaloSample:
 
         img_file = f"{evts_path}/{idx_instr_tag}_img.fits"  # We never make a cleaned version of this, since it is really time-expensive as opposed to doing it annulus-by-annulus
         evt_file = f"{evts_path}/{idx_instr_tag}_evt.fits"
-        bkgrnd_evt_file = f"{_bkgrnd_evts_path}/{_bkgrnd_idx_instr_tag}_evt.fits"
+        bkgrnd_evt_file = f"{_bkgrnd_evts_path}/{_bkgrnd_idx_instr_tag}_evt.fits"  # noqa: F821
 
         Lx_path = Path(f"{annuli_path}/Lx_files")
         os.makedirs(Lx_path, exist_ok=True)
@@ -4192,20 +4207,20 @@ class HaloSample:
             # nx = instrument_registry[instrument_name]["num_pixels"]
             # plate_scale = arcsec * instrument_registry[instrument_name]["fov"]/nx  ### arcsec per pixel
 
-            ang_diam_dist = cosmo.angular_diameter_distance(z=redshift) / radian
+            ang_diam_dist = cosmo.angular_diameter_distance(z=redshift) / radian  # noqa: F821
 
-            arcsec_Xray_HSE_R500 = (Xray_HSE_R500 / ang_diam_dist).to("arcsec")
-            arcsec_Xray_HSE_R500_upper = (Xray_HSE_R500_upper / ang_diam_dist).to("arcsec")
-            arcsec_Xray_HSE_R500_lower = (Xray_HSE_R500_lower / ang_diam_dist).to("arcsec")
+            arcsec_Xray_HSE_R500 = (Xray_HSE_R500 / ang_diam_dist).to("arcsec")  # noqa: F821
+            arcsec_Xray_HSE_R500_upper = (Xray_HSE_R500_upper / ang_diam_dist).to("arcsec")  # noqa: F821
+            arcsec_Xray_HSE_R500_lower = (Xray_HSE_R500_lower / ang_diam_dist).to("arcsec")  # noqa: F821
 
         if arcsec_Xray_HSE_R500_upper.to("arcsec").value > chip_radius_arcsec:
-            _logger.warning(
-                f"Halo: {halo_idx}:  X-ray measured R500 upper limit in arcsec = {arcsec_Xray_HSE_R500_upper} > chip radius for {instrument_name} = {chip_radius_arcsec} at current redshift = {redshift}. (Best-fit R500 in arcsec = {arcsec_Xray_HSE_R500} ). Quitting..."
+            _logger.warning(  # noqa: F821
+                f"Halo: {halo_idx}:  X-ray measured R500 upper limit in arcsec = {arcsec_Xray_HSE_R500_upper} > chip radius for {instrument_name} = {chip_radius_arcsec} at current redshift = {redshift}. (Best-fit R500 in arcsec = {arcsec_Xray_HSE_R500} ). Quitting..."  # noqa: F821
             )
             return
         else:
-            _logger.info(
-                f"Halo: {halo_idx}:  X-ray measured R500 upper limit in arcsec = {arcsec_Xray_HSE_R500_upper} <= chip radius for {instrument_name} = {chip_radius_arcsec} at current redshift = {redshift}. (Best-fit R500 in arcsec = {arcsec_Xray_HSE_R500} ). "
+            _logger.info(  # noqa: F821
+                f"Halo: {halo_idx}:  X-ray measured R500 upper limit in arcsec = {arcsec_Xray_HSE_R500_upper} <= chip radius for {instrument_name} = {chip_radius_arcsec} at current redshift = {redshift}. (Best-fit R500 in arcsec = {arcsec_Xray_HSE_R500} ). "  # noqa: F821
             )
 
         flux_unit = u.keV / u.s / u.cm**2
@@ -4219,7 +4234,7 @@ class HaloSample:
         bkgrnd_flux_Xray_HSE_R500_lower = 0
 
         step = 0.2
-        _logger.info(
+        _logger.info(  # noqa: F821
             f"Will create {-(emax + step - emin) // -step} exposure maps for linearly spaced energies between {emin} and {emax} to calculate the R500 fluxes"
         )
         for e in range(int(1000 * emin), int(1000 * emax), int(1000 * step)):
@@ -4230,11 +4245,11 @@ class HaloSample:
             e_high = round(e_high, 3)
             e_av = round(e_av, 3)
 
-            _logger.info(f"Creating signal exposure map at {e_av} keV & Calculating flux between {e_low}-{e_high} keV")
+            _logger.info(f"Creating signal exposure map at {e_av} keV & Calculating flux between {e_low}-{e_high} keV")  # noqa: F821
             soxs.make_exposure_map(
                 evt_file, f"{Lx_path}/{idx_instr_tag}_Xray_HSE_R500_region_expmap.fits", e_av, overwrite=True
             )
-            _logger.info(
+            _logger.info(  # noqa: F821
                 f"Creating background exposure map at {e_av} keV & Calculating flux between {e_low}-{e_high} keV"
             )
             soxs.make_exposure_map(
@@ -4243,7 +4258,7 @@ class HaloSample:
                 e_av,
                 overwrite=True,
             )
-            _logger.info(f"Using Background file {bkgrnd_evt_file}")
+            _logger.info(f"Using Background file {bkgrnd_evt_file}")  # noqa: F821
 
             soxs.write_radial_profile(
                 evt_file,
@@ -4342,7 +4357,7 @@ class HaloSample:
         flux_Xray_HSE_R500_lower -= bkgrnd_flux_Xray_HSE_R500_lower
         flux_Xray_HSE_R500_upper -= bkgrnd_flux_Xray_HSE_R500_upper
 
-        d_l = cosmo.luminosity_distance(redshift)
+        d_l = cosmo.luminosity_distance(redshift)  # noqa: F821
         Xray_L_in_Xray_HSE_R500 = (flux_Xray_HSE_R500 * 4 * math.pi * d_l**2).to("erg/s")
         Xray_L_in_Xray_HSE_R500_upper = (flux_Xray_HSE_R500_upper * 4 * math.pi * d_l**2).to("erg/s")
         Xray_L_in_Xray_HSE_R500_lower = (flux_Xray_HSE_R500_lower * 4 * math.pi * d_l**2).to("erg/s")
@@ -6141,7 +6156,7 @@ class HaloSample:
                     mass_tag = "SO"
                 if mass_tag == "Xray":
                     mass_tag = "X"
-                grad_string = f"Best Fit ($\mathtt{{M}}_\mathtt{{500,{mass_tag}}}$ > 10$^{{{np.log10(best_fit_min_mass)}}} M_\odot$), \n {'': <7} m(Y|X) = {'%.2f' % a[0]} $\pm$ {'%.2f' % erra[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\pm$ {'%.2f' % erra[3]}"
+                grad_string = f"Best Fit ($\\mathtt{{M}}_\\mathtt{{500,{mass_tag}}}$ > 10$^{{{np.log10(best_fit_min_mass)}}} M_\\odot$), \n {'': <7} m(Y|X) = {'%.2f' % a[0]} $\\pm$ {'%.2f' % erra[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\\pm$ {'%.2f' % erra[3]}"
                 print(grad_string)
                 if bcesMethod == 0:
                     print("Best fit line will be Y|X")
@@ -6150,9 +6165,9 @@ class HaloSample:
                 # plt.plot([10**min(bces_logx_data), 10**max(bces_logx_data)],  (10**b[bcesMethod]) * (np.array([10**min(bces_logx_data), 10**max(bces_logx_data)])**(a[bcesMethod])), **best_fit_kwargs, label = grad_string )
             else:
                 if write_norm:
-                    grad_string = f"Best Fit m(Y|X) = {'%.2f' % a[0]} $\pm$ {'%.2f' % erra[0]} \n {'': <14} b= {'%.2f' % b[0]} $\pm$ {'%.2f' % errb[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\pm$ {'%.2f' % erra[3]} \n {'': <14} b= {'%.2f' % b[3]} $\pm$ {'%.2f' % errb[3]} "
+                    grad_string = f"Best Fit m(Y|X) = {'%.2f' % a[0]} $\\pm$ {'%.2f' % erra[0]} \n {'': <14} b= {'%.2f' % b[0]} $\\pm$ {'%.2f' % errb[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\\pm$ {'%.2f' % erra[3]} \n {'': <14} b= {'%.2f' % b[3]} $\\pm$ {'%.2f' % errb[3]} "
                 else:
-                    grad_string = f"Best Fit m(Y|X) = {'%.2f' % a[0]} $\pm$ {'%.2f' % erra[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\pm$ {'%.2f' % erra[3]}"
+                    grad_string = f"Best Fit m(Y|X) = {'%.2f' % a[0]} $\\pm$ {'%.2f' % erra[0]} \n {'': <7} m(Ogl) = {'%.2f' % a[3]} $\\pm$ {'%.2f' % erra[3]}"
                 if bcesMethod == 0:
                     print("Best fit line will be Y|X")
                 if bcesMethod == 3:
@@ -6310,7 +6325,7 @@ class HaloSample:
         by_label = dict(zip(labels, handles))
         plt.legend(by_label.values(), by_label.keys(), fontsize=legend_fontsize)
         plt.xlabel(xlabel)
-        if "[$\mathtt{M}_\odot$]" not in ylabel:
+        if r"[$\mathtt{M}_\odot$]" not in ylabel:
             plt.ylabel(ylabel, fontsize=35)
         else:
             plt.ylabel(ylabel)
@@ -6329,7 +6344,7 @@ class HaloSample:
         plt.text(
             0.65,
             0.05,
-            f"m$_\mathrm{{ss}}=$ {'%.2f' % self_sim_scaling_power}",
+            rf"m$_\mathrm{{ss}}=$ {'%.2f' % self_sim_scaling_power}",
             fontsize=1.3 * legend_fontsize,
             transform=ax.transAxes,
         )
@@ -7654,7 +7669,7 @@ class HaloSample:
         if hubble_correction:
             ylabel = (
                 r"E(z)$^{\mathtt{-7/3}}$L$_\mathtt{X}$"
-                + f"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+                + rf"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
             )
         if not hubble_correction:
             ylabel = r"$L_\mathtt{X}$[erg/s]"
@@ -7731,11 +7746,11 @@ class HaloSample:
         y_property_key = f"Xray_L_in_Xray_HSE_R500_{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}_RF_keV"
         xerr_key = None
         yerr_key = f"Xray_L_in_Xray_HSE_R500_spread_{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}_RF_keV"
-        xlabel = f"$L_{{true}} ^\mathrm{{{Xray_true_total_lumin_emin_RF}-{Xray_true_total_lumin_emax_RF}}}$[erg/s]"
+        xlabel = rf"$L_{{true}} ^\mathrm{{{Xray_true_total_lumin_emin_RF}-{Xray_true_total_lumin_emax_RF}}}$[erg/s]"
         if mass_key == None:
             mass_key = "Xray_HSE_M500"
         if not hubble_correction:
-            ylabel = f"$L_X ^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+            ylabel = rf"$L_X ^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
         if cscale == None:
             if hubble_correction:
                 save_name = f"L_Xray_Ez_corrected"
@@ -7808,7 +7823,7 @@ class HaloSample:
         if hubble_correction:
             ylabel = (
                 r"E(z)$^{\mathtt{-7/3}}$L"
-                + f"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+                + rf"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
             )
         if not hubble_correction:
             ylabel = r"$L_\mathtt{truth}$[erg/s]"
@@ -7887,7 +7902,7 @@ class HaloSample:
         if hubble_correction:
             ylabel = (
                 r"E(z)$^{\mathtt{-1}}$L$_\mathtt{X}$"
-                + f"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+                + rf"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
             )
         if not hubble_correction:
             ylabel = r"$L_x$[erg/s]"
@@ -7965,7 +7980,8 @@ class HaloSample:
             mass_key = "MW_HSE_M500"
         if hubble_correction:
             ylabel = (
-                r"E(z)$^{\mathtt{-1}}$L" + f"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+                r"E(z)$^{\mathtt{-1}}$L"
+                + rf"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
             )
         if not hubble_correction:
             ylabel = r"$L$[erg/s]"
@@ -8043,7 +8059,8 @@ class HaloSample:
             mass_key = "LW_HSE_M500"
         if hubble_correction:
             ylabel = (
-                r"E(z)$^{\mathtt{-1}}$L" + f"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
+                r"E(z)$^{\mathtt{-1}}$L"
+                + rf"$^\mathrm{{{Xray_total_lumin_emin_RF}-{Xray_total_lumin_emax_RF}}}$[erg/s]"
             )
         if not hubble_correction:
             ylabel = r"$L$[erg/s]"
@@ -9939,12 +9956,12 @@ class HaloSample:
                     table_string += "- & "
                 else:
                     if ks_stats[1] > significance:
-                        table_string += "\cellcolor{green} "
+                        table_string += r"\cellcolor{green} "
                     table_string += f"({round(ks_stats[0], 3)}, {'{:.2e}'.format(ks_stats[1])})" + " & "
                     print(key1, key2, f"({round(ks_stats[0], 3)}, {'{:.2e}'.format(ks_stats[1])})")
             table_string = table_string[:-2]  ## Remove trailing ampersand
             table_string += r"\\" + "\n"
-        table_string += r" \hline \hline" + "\n" + "\end{tabular}"
+        table_string += r" \hline \hline" + "\n" + r"\end{tabular}"
         print(table_string)
 
     def generate_2D_ks_test_table_all_masses(
@@ -9982,11 +9999,11 @@ class HaloSample:
                     table_string += "- & "
                 else:
                     if ks_stats[1] > significance:
-                        table_string += "\cellcolor{green} "
+                        table_string += r"\cellcolor{green} "
                     table_string += f"({round(ks_stats[0], 3)}, {'{:.2e}'.format(ks_stats[1])})" + " & "
             table_string = table_string[:-2]  ## Remove trailing ampersand
             table_string += r"\\" + "\n"
-        table_string += r" \hline \hline" + "\n" + "\end{tabular}"
+        table_string += r" \hline \hline" + "\n" + r"\end{tabular}"
         print(table_string)
 
     def plot_2D_ks_shifting_test_panel(
@@ -10333,6 +10350,7 @@ class HaloSample:
         plt.clf()
         plt.close()
 
+    # FIXME: mass_tag is used in a plot label below but never defined in this method
     def _loglog_scaling_bces(
         self,
         x_property_key,
@@ -10446,7 +10464,7 @@ class HaloSample:
                     [10 ** min(bces_logx_data), 10 ** max(bces_logx_data)],
                     (10 ** b[bcesMethod])
                     * (np.array([10 ** min(bces_logx_data), 10 ** max(bces_logx_data)]) ** (a[bcesMethod])),
-                    label=f"Best Fit ($\mathtt{{M}}_\mathtt{{500,{mass_tag}}}$ > 10$^{{{np.log10(best_fit_min_mass)}}}$), m = {round(a[bcesMethod], 2)}",
+                    label=rf"Best Fit ($\mathtt{{M}}_\mathtt{{500,{mass_tag}}}$ > 10$^{{{np.log10(best_fit_min_mass)}}}$), m = {round(a[bcesMethod], 2)}",  # noqa: F821
                 )
             plt.legend(by_label.values(), by_label.keys(), fontsize=30)
             plt.savefig(
@@ -10926,12 +10944,12 @@ class HaloSample:
                             )
                             table_string += " --  " + f"\\newline "
                         elif num_data <= flagged_length:
-                            table_string += f"{m_rounded} $\pm$ {merr_rounded}" + r"$^{*}$ " + f"\\newline "
+                            table_string += rf"{m_rounded} $\pm$ {merr_rounded}" + r"$^{*}$ " + f"\\newline "
                             print(
                                 f"Error {merr_rounded} acceptable compared to value {m_rounded} for {scaling_dict['save_name']} for M > 10$^{{{np.log10(min_mass)}}}$"
                             )
                         else:
-                            table_string += f"{m_rounded} $\pm$ {merr_rounded}  \\newline "
+                            table_string += f"{m_rounded} $\\pm$ {merr_rounded}  \\newline "
                             print(
                                 f"Error {merr_rounded} acceptable compared to value {m_rounded} for {scaling_dict['save_name']} for M > 10$^{{{np.log10(min_mass)}}}$"
                             )
@@ -10947,7 +10965,7 @@ class HaloSample:
                 weighted_kT_Xray_vs_Lx_in_R500x_dict,
             ]:
                 table_string += r"\hline" "\n"
-        table_string += r" \hline \hline" + "\n" + "\end{tabular}"
+        table_string += r" \hline \hline" + "\n" + r"\end{tabular}"
         with open("./Halo_Sample/scaling_relations/scaling_table.txt", "w") as f:
             f.write(f"BCES Methods = {', '.join([str(x) for x in bces_methods])} \n")
             f.write(table_string)
@@ -11519,7 +11537,7 @@ class HaloSample:
                 else:
                     frame.tick_params(axis="x", which="both", bottom=True, top=False, labelbottom=True, labeltop=False)
                     mass_tag = mass_key.split("_")[0]
-                    frame.set_xlabel(f"$\lfloor \mathtt{{M}}_\mathtt{{500,{mass_tag}}}$  [$\mathtt{{M}}_\odot$]")
+                    frame.set_xlabel(rf"$\lfloor \mathtt{{M}}_\mathtt{{500,{mass_tag}}}$  [$\mathtt{{M}}_\odot$]")
                     ml = MultipleLocator(0.5)
                     frame.xaxis.set_major_locator(ml)
                     ml = MultipleLocator(0.1)
@@ -11547,7 +11565,7 @@ class HaloSample:
                     # extraticks = [1.5,]
                     # frame.set_xticks(list(frame.get_xticks()) + extraticks)
 
-                frame.set_ylabel(f"$\mathtt{{{scaling_dict['save_name'].replace(r'$', '')}}}$", fontsize=30)
+                frame.set_ylabel(rf"$\mathtt{{{scaling_dict['save_name'].replace(r'$', '')}}}$", fontsize=30)
                 try:
                     max_dev = min(
                         1.4

@@ -1,3 +1,16 @@
+"""
+
+Fits spectra of mock X-ray observations with threeML and astromodels' XSPEC models.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
+# the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
+from ..extras import XRAY_FITTING_PACKAGES, require_packages
+
+require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray spectral fitting")
+
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.cosmology import FlatLambdaCDM
@@ -15,6 +28,7 @@ import math
 import fnmatch
 from matplotlib.offsetbox import AnchoredText
 from soxs.instrument import RedistributionMatrixFile
+from ..data_files import instrument_file
 from threeML import *
 from threeML.io.package_data import get_path_of_data_file
 from astromodels.xspec.factory import XS_bapec, XS_vapec, XS_bvapec, XS_apec, XS_TBabs
@@ -318,8 +332,9 @@ class FitRadialSpectra:
             rmf = hdul["SPECTRUM"].header.get("RESPFILE", None)
             arf = hdul["SPECTRUM"].header.get("ANCRFILE", None)
 
-        rmf = f"./CODE/instr_files/{rmf}"
-        arf = f"./CODE/instr_files/{arf}"
+        # the response files named in the spectrum's header, downloaded by SOXS if it does not have them yet
+        rmf = instrument_file(rmf)
+        arf = instrument_file(arf)
 
         if not os.path.exists(rmf):
             raise RuntimeError(f"rmf file {rmf} does not exist!")

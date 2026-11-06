@@ -1,3 +1,12 @@
+"""
+
+Makes mock X-ray observations of haloes: photons generated from the gas with pyXSIM and observed with SOXS's
+instrument models, with images, spectra and profiles.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
 import yt
 import numpy as np
 import sys
@@ -15,16 +24,12 @@ import matplotlib
 import matplotlib.pyplot as plt
 import logging
 
-from .tools import *
+from .tools import make_background_file_with_shift
+from ..data_files import apec_table_dir, xray_data_dir
 from astropy.io import fits
 
 # yt.set_log_level(40)
 import soxs
-
-_MOXHA_INSTR_DIR = f"{Path(__file__).resolve().parent}/instr_files/"  # replaces imp.find_module, removed in Python 3.12
-
-print(f"setting soxs config loc to {_MOXHA_INSTR_DIR}")
-soxs.set_soxs_config("soxs_data_dir", _MOXHA_INSTR_DIR)
 
 
 class Observation:
@@ -90,10 +95,11 @@ class Observation:
         # if str(yt.__version__) != "4.1.1":
         #     print("yT version is not 4.1.1. Exiting...")
         #     sys.exit()
-        if soxs_data_dir == None:
-            self._logger.info(f"setting soxs data loc to {_MOXHA_INSTR_DIR}")
-            soxs.set_soxs_config("soxs_data_dir", _MOXHA_INSTR_DIR)
-            self._soxs_data_dir = _MOXHA_INSTR_DIR
+        # SOXS downloads the instrument files it needs into its own data directory (see octavius/xray/data_files.py);
+        # soxs_data_dir only overrides that directory for this session, e.g. for files SOXS cannot download
+        if soxs_data_dir is None:
+            self._soxs_data_dir = str(xray_data_dir())
+            self._logger.info(f"SOXS data directory: {self._soxs_data_dir}")
         else:
             self._soxs_data_dir = soxs_data_dir
             self._logger.info(f"setting soxs data loc to " + soxs_data_dir)
@@ -1618,7 +1624,8 @@ class Observation:
                     metallicity=("gas", "metallicity"),
                     redshift=self.redshift,
                     cosmology=self.ds.cosmology,
-                )  # data_dir="./CODE/instr_files/")
+                    data_dir=str(apec_table_dir()),  # downloaded from yt's data server on first use
+                )
         required_fields = [x["field"][1] for x in self.dataset_cuts if x["field"][0] == self.generator_field]
         yt.add_particle_filter(
             "filtered_gas", function=_filtered_gas, filtered_type=self.generator_field, requires=required_fields

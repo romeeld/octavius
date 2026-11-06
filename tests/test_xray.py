@@ -1,16 +1,21 @@
 """
 
 Tests the collection of gas around haloes for mock X-ray observations. The observations themselves need the optional
-X-ray dependencies (moxha, yt, pyXSIM and SOXS), so the test of the moxha dataset is skipped without them.
+X-ray dependencies (yt, pyXSIM and SOXS: pip install octavius[xray]), so the test of the moxha dataset is skipped
+without them.
 
 """
 
+import importlib
+from importlib.util import find_spec
 from pathlib import Path
+
 import numpy as np
 import h5py
 import pytest
 
 from octavius import load_catalogue, build_analyser
+from octavius.xray.extras import XRAY_FITTING_PACKAGES, require_packages
 from octavius.xray.xray_gas import _flag_within_radius
 
 
@@ -79,7 +84,7 @@ def test_xray_dataset(mock_catalogue: h5py.File) -> None:
 
     AI-generated: claude-opus-5-5
     """
-    pytest.importorskip("moxha.particle_dataset", exc_type=ImportError)
+    pytest.importorskip("octavius.xray.moxha.particle_dataset", exc_type=ImportError)
     from octavius.xray.xray_observations import dataset_from_xray_gas
 
     cat = load_catalogue(Path(mock_catalogue.filename))
@@ -103,3 +108,26 @@ def test_xray_dataset(mock_catalogue: h5py.File) -> None:
             np.testing.assert_array_equal(delay_times, 0.0)
 
     cat.close()
+
+
+def test_require_packages() -> None:
+    """
+    A missing optional package gives an ImportError naming the package and the extra that installs it.
+    """
+    require_packages(packages=["numpy"], extra="xray", purpose="Anything")  # installed, so no error
+
+    with pytest.raises(ImportError, match=r"not_a_real_package.*octavius\[xray-fitting\]"):
+        require_packages(packages=["numpy", "not_a_real_package"], extra="xray-fitting", purpose="Testing")
+
+
+def test_fitting_modules_need_fitting_extra() -> None:
+    """
+    Without the fitting packages, importing moxha's fitting modules says to install octavius[xray-fitting].
+    """
+    pytest.importorskip("octavius.xray.moxha", exc_type=ImportError)
+    if all(find_spec(package) is not None for package in XRAY_FITTING_PACKAGES):
+        pytest.skip("the fitting packages are installed")
+
+    for module in ("profilefits", "spectralfits", "tessmaps"):
+        with pytest.raises(ImportError, match=r"octavius\[xray-fitting\]"):
+            importlib.import_module(f"octavius.xray.moxha.{module}")
