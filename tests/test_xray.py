@@ -95,4 +95,11 @@ def test_xray_dataset(mock_catalogue: h5py.File) -> None:
         total_mass = gas.columns["mass"].sum() + sum(matter["mass"].sum() for matter in gas.other_matter.values())
         np.testing.assert_allclose(everything["all", "Masses"].to("Msun").sum().v, total_mass, rtol=1e-6)
 
+        # moxha cuts on DelayTime, so it must exist even when the snapshot has no wind data (then nothing is a wind)
+        delay_times = everything["gas", "DelayTime"].to("Gyr").v
+        if "wind_delay_time" in gas.columns:
+            np.testing.assert_allclose(np.sort(delay_times), np.sort(gas.columns["wind_delay_time"]))
+        else:
+            np.testing.assert_array_equal(delay_times, 0.0)
+
     cat.close()
