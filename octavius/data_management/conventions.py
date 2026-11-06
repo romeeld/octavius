@@ -481,6 +481,7 @@ CODE_UNITS = {
     "bhmass": DatasetUnits(unit=u.M_sun),  # solar masses
     "bhmdot": DatasetUnits(unit=(u.M_sun / u.yr)),  # solar masses/yr
     "smoothing_length": DatasetUnits(unit=u.kpc, a_exponent=1),  # ckpc
+    "wind_delay_time": DatasetUnits(unit=u.Gyr),  # time left as a decoupled wind particle (0 if not a wind)
 }
 
 # element symbols keyed by their full names (as SWIFT names its element columns), up to germanium to cover Chem5
@@ -559,6 +560,7 @@ DTYPES = {
     "bhmass": np.float64,
     "bhmdot": np.float64,
     "smoothing_length": np.float64,
+    "wind_delay_time": np.float64,
     # NOTE: external halo readers (AHF) sometimes store absurdly large integers for HIDs
     "HaloID": np.int64,
     "GalID": np.int64,
@@ -598,6 +600,7 @@ def gadget_unit_conversion_factor(dataset: str, h: float, a: float) -> float:
         "electron_abundance": (u.dimensionless_unscaled),
         "dust_mass": (1e10 * u.M_sun / h),
         "smoothing_length": (u.kpc * a / h),
+        "wind_delay_time": (u.kpc / (u.km / u.s) / h),  # GIZMO code time unit
     }
 
     snap_unit = conversions[dataset]

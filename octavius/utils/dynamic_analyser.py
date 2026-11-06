@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .loader import OctaviusCatalogue, GroupCollection
     from ..data_management import SnapshotReader
+    from ..xray import XrayGas
+    from moxha.observations import Observation
     import h5py
 
 # default libraries
@@ -541,6 +543,149 @@ class OctaviusAnalyser:
             return values
 
         return values, subset.offsets
+
+    def get_xray_gas(self, halo_index: int, radius_factor: float = 5.0, region: str = "sphere") -> XrayGas:
+        """
+        Reads the gas around a halo, in physical units, for making mock X-ray observations of it.
+
+        Parameters
+        ----------
+        halo_index: int
+            The index into the Octavius catalogue of the halo.
+        radius_factor: float, optional
+            For ``region="sphere"``, the radius of the sphere in units of the halo's r500c (default: 5).
+        region: str, optional
+            ``sphere`` (default) reads all gas within radius_factor * r500c of the halo's minimum potential, searching
+            the whole snapshot; ``halo`` reads only the gas belonging to the halo, which is much quicker for large
+            snapshots but misses gas outside the halo's boundary.
+
+        Returns
+        -------
+        gas: XrayGas
+            The gas quantities (keyed by Octavius name) with the halo's centre, r500c, m500c and the cosmology, and
+            the positions and masses of the other particle types in the same region (for total mass profiles).
+
+        AI-generated: claude-opus-5-5
+        """
+        from ..xray import (  # avoid circular import
+            XrayGas,
+            find_particles_within_radius,
+            read_physical_columns,
+            readable_xray_columns,
+        )
+
+        haloes = self._collections.get("haloes")
+        if haloes is None:
+            raise KeyError("'haloes' are not present in the catalogue.")
+        if halo_index < 0 or halo_index >= len(haloes):
+            raise IndexError(f"Halo index must lie in [0, {len(haloes)}).")
+
+        available = haloes.keys()
+        missing = [name for name in ("minpot_pos", "r500c", "m500c") if name not in available]
+        if missing:
+            raise KeyError(f"The catalogue is missing {missing}; r500c and m500c need 500 in virial_factors.")
+
+        simulation = self._reader.simulation_attributes
+        scale_factor = simulation.scale_factor
+
+        # catalogue values in code units (comoving kpc)
+        centre = haloes.get_dataset("minpot_pos")[halo_index].astype(np.float64)
+        r500 = float(haloes.get_dataset("r500c")[halo_index])
+        m500 = float(haloes.get_dataset("m500c")[halo_index])
+
+        if region not in ("sphere", "halo"):
+            raise ValueError(f"region must be 'sphere' or 'halo', not '{region}'.")
+        region_radius = radius_factor * r500 if region == "sphere" else 0.0
+
+        def _region_indices(ptype: str) -> np.ndarray:
+            if region == "sphere":
+                return find_particles_within_radius(
+                    reader=self._reader, ptype=ptype, centre=centre, radius=region_radius
+                )
+            return np.unique(haloes.get_particle_indices(ptype=ptype, group_index=halo_index))
+
+        gas_indices = _region_indices(ptype="gas")
+        logger.info(f"Reading {len(gas_indices):,} gas particles for X-ray observations of halo {halo_index}.")
+        columns = read_physical_columns(
+            reader=self._reader,
+            ptype="gas",
+            columns=readable_xray_columns(reader=self._reader),
+            snapshot_indices=gas_indices,
+            centre=centre,
+        )
+
+        # the other matter is only needed for total mass profiles, so positions and masses suffice
+        other_matter = {}
+        processed = [ptype for ptype, wanted in self._config.process_ptypes.items() if wanted]
+        for ptype in self._reader.available_ptypes:
+            if ptype == "gas" or ptype not in processed:
+                continue
+            other_matter[ptype] = read_physical_columns(
+                reader=self._reader,
+                ptype=ptype,
+                columns=["pos", "mass"],
+                snapshot_indices=_region_indices(ptype=ptype),
+                centre=centre,
+            )
+
+        return XrayGas(
+            columns=columns,
+            other_matter=other_matter,
+            halo_index=int(halo_index),
+            centre=centre * scale_factor,
+            r500=r500 * scale_factor,
+            m500=m500,
+            region_radius=region_radius * scale_factor,
+            redshift=simulation.redshift,
+            h=simulation.h,
+            omega_matter=simulation.omega_matter,
+            omega_lambda=simulation.omega_lambda,
+        )
+
+    def xray_observation(
+        self,
+        halo_index: int,
+        radius_factor: float = 5.0,
+        region: str = "sphere",
+        make_grad_fields: bool = False,
+        **observation_kwargs,
+    ) -> Observation:
+        """
+        Prepares a moxha Observation of a halo, ready for its MakePhotons() and ObservePhotons() methods. Needs the
+        optional X-ray dependencies (moxha, yt, pyXSIM and SOXS).
+
+        Parameters
+        ----------
+        halo_index: int
+            The index into the Octavius catalogue of the halo.
+        radius_factor: float, optional
+            Radius of the gas sphere read, in units of r500c (default: 5); MakePhotons(sphere_R500s=...) should not
+            exceed it.
+        region: str, optional
+            ``sphere`` (default) or ``halo``; see get_xray_gas().
+        make_grad_fields: bool, optional
+            Passed to moxha's Observation.load_ds() to add gradient fields to the dataset (default: ``False``).
+        **observation_kwargs
+            Passed to moxha's Observation (save_dir, run_ID, emin, emax, emin_for_EW_values, emax_for_EW_values,
+            energies_for_Lx_tot, redshift, ...). box_path and snap_num default to the snapshot's path and number.
+
+        Returns
+        -------
+        observation: moxha.observations.Observation
+            The Observation, with its dataset loaded and the halo set as its active halo.
+
+        AI-generated: claude-opus-5-5
+        """
+        from ..xray.xray_observations import build_xray_observation  # avoid circular import
+
+        snapshot_path = self._reader.snapshot_path
+        snapshot_digits = "".join(character for character in snapshot_path.stem.split("_")[-1] if character.isdigit())
+        observation_kwargs.setdefault("box_path", str(snapshot_path))
+        observation_kwargs.setdefault("snap_num", int(snapshot_digits) if snapshot_digits else 0)
+
+        gas = self.get_xray_gas(halo_index=halo_index, radius_factor=radius_factor, region=region)
+
+        return build_xray_observation(gas=gas, make_grad_fields=make_grad_fields, observation_kwargs=observation_kwargs)
 
     def _extract_groups(
         self,
