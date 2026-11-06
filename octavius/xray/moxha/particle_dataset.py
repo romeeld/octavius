@@ -123,9 +123,7 @@ def dataset_from_gas_particles(
 
     if bounding_box is None:
         padding = smoothing_lengths.max() if len(smoothing_lengths) > 0 else 1.0
-        bounding_box = np.column_stack(
-            [positions.min(axis=0) - padding, positions.max(axis=0) + padding]
-        )
+        bounding_box = np.column_stack([positions.min(axis=0) - padding, positions.max(axis=0) + padding])
 
     ds = yt.load_particles(
         data,
@@ -161,9 +159,7 @@ def dataset_from_gas_particles(
 
     # yt only aliases the standard SPH fields to "gas"; alias the rest so moxha can address them as it does for GIZMO
     standard = {"density", "temperature", "smoothing_length", "metallicity"}
-    aliased = [f"{symbol}_metallicity" for symbol in element_fractions] + list(
-        extra_fields
-    )
+    aliased = [f"{symbol}_metallicity" for symbol in element_fractions] + list(extra_fields)
     for name in aliased:
         if name in standard:
             continue
