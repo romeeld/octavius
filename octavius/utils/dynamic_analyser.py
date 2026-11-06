@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .loader import OctaviusCatalogue, GroupCollection
     from ..data_management import SnapshotReader
     from ..xray import XrayGas
-    from moxha.observations import Observation
+    from ..xray.moxha.observations import Observation
     import h5py
 
 # default libraries
@@ -652,7 +652,7 @@ class OctaviusAnalyser:
     ) -> Observation:
         """
         Prepares a moxha Observation of a halo, ready for its MakePhotons() and ObservePhotons() methods. Needs the
-        optional X-ray dependencies (moxha, yt, pyXSIM and SOXS).
+        optional X-ray dependencies (yt, pyXSIM and SOXS: pip install octavius[xray]).
 
         Parameters
         ----------
@@ -671,7 +671,7 @@ class OctaviusAnalyser:
 
         Returns
         -------
-        observation: moxha.observations.Observation
+        observation: octavius.xray.moxha.observations.Observation
             The Observation, with its dataset loaded and the halo set as its active halo.
 
         AI-generated: claude-opus-5-5

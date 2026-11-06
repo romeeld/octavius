@@ -1,15 +1,17 @@
 """
-Builders for the halo dictionaries passed to Observation.set_active_halos(), reading
-halo centres, R500 and M500 from a halo catalogue.
 
-The catalogue packages (octavius, caesar) are imported inside each function, so moxha
-does not depend on either of them.
+Builds the halo dictionaries passed to Observation.set_active_halos() from an Octavius catalogue.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
 """
 
 from pathlib import Path
 
 import numpy as np
 import unyt
+
+from ...utils.loader import load_catalogue
 
 
 def halos_from_octavius(catalogue_path, halo_indices, centre="minpot_pos"):
@@ -35,11 +37,9 @@ def halos_from_octavius(catalogue_path, halo_indices, centre="minpot_pos"):
 
     AI-generated: claude-opus-5-5
     """
-    import octavius as oc
-
     halo_indices = np.atleast_1d(halo_indices).astype(int)
 
-    with oc.load_catalogue(Path(catalogue_path)) as catalogue:
+    with load_catalogue(Path(catalogue_path)) as catalogue:
         haloes = catalogue.haloes
         if haloes is None:
             raise ValueError(f"{catalogue_path} contains no haloes.")
@@ -66,26 +66,3 @@ def halos_from_octavius(catalogue_path, halo_indices, centre="minpot_pos"):
         }
         for i, halo_index in enumerate(halo_indices)
     ]
-
-
-def halos_from_caesar(caesar_path, halo_indices):
-    """
-    Read the halo dictionaries for Observation.set_active_halos() from a Caesar file.
-
-    AI-generated: claude-opus-5-5
-    """
-    import caesar
-
-    caesar_object = caesar.load(str(caesar_path))
-    halos = []
-    for halo_index in np.atleast_1d(halo_indices).astype(int):
-        halo = caesar_object.halos[halo_index]
-        halos.append(
-            {
-                "index": int(halo_index),
-                "center": halo.minpotpos,
-                "R500": halo.virial_quantities["r500c"],
-                "M500": halo.virial_quantities["m500c"],
-            }
-        )
-    return halos

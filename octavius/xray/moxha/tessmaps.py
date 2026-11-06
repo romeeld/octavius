@@ -1,3 +1,17 @@
+"""
+
+Makes tessellated (Voronoi-binned) temperature and other maps from mock X-ray observations, fitting the spectrum
+of each bin.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
+# the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
+from ..extras import XRAY_FITTING_PACKAGES, require_packages
+
+require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="Tessellated X-ray maps")
+
 from astropy import wcs
 from astropy.io import fits
 import numpy as np
@@ -19,6 +33,7 @@ import logging
 from soxs.instrument_registry import instrument_registry
 from .tools import soxs_plotter
 from soxs.instrument import RedistributionMatrixFile
+from ..data_files import instrument_file
 from threeML import *
 from threeML.io.package_data import get_path_of_data_file
 from astromodels.xspec.factory import XS_bapec, XS_vapec, XS_bvapec, XS_apec, XS_TBabs
@@ -546,7 +561,8 @@ class VoronoiTesselation:
             os.remove(f"./tessregion{i}.reg")
 
     def _fit_tiles_mwe(self, overwrite):
-        import os, psutil
+        import os
+        import psutil
 
         import matplotlib
         from threeML import (
@@ -608,7 +624,7 @@ class VoronoiTesselation:
                 rmf = hdul["SPECTRUM"].header.get("RESPFILE", None)
                 arf = hdul["SPECTRUM"].header.get("ANCRFILE", None)
             ogip_data = OGIPLike(
-                "ogip", observation=pha_file, response=f"./CODE/instr_files/{rmf}", arf_file=f"./CODE/instr_files/{arf}"
+                "ogip", observation=pha_file, response=instrument_file(rmf), arf_file=instrument_file(arf)
             )
             ogip_data.set_active_measurements(f"{1.1 * self.emin}-{0.9 * self.emax}")
             jl = JointLikelihood(model, DataList(ogip_data))
@@ -904,6 +920,7 @@ class VoronoiTesselation:
         # self.ogip_data = None
 
         # print(open_files_dict)
+        # FIXME: new_opens and open_files2_dict come from the commented-out debugging code above, so this raises a NameError
         for new_open in new_opens:
             if (
                 "/atomdb/APED/" in new_open

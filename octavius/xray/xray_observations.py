@@ -1,8 +1,8 @@
 """
 
-Hands the gas collected by xray_gas.py to moxha, which makes the mock X-ray observations with yt, pyXSIM and SOXS.
-These packages are optional dependencies (pip install octavius[xray], plus moxha), so they are only imported here,
-when an observation is requested.
+Hands the gas collected by xray_gas.py to moxha (octavius/xray/moxha), which makes the mock X-ray observations with
+yt, pyXSIM and SOXS. These packages are optional dependencies (pip install octavius[xray]), so moxha is only imported
+here, when an observation is requested.
 
 """
 
@@ -37,18 +37,12 @@ MOXHA_PTYPES = {"dm": "PartType1", "star": "PartType4", "bh": "PartType5"}
 
 def _import_moxha() -> tuple[Any, Any, Any]:
     """
-    Imports the moxha functions used here, with an informative error if the X-ray dependencies are missing.
+    Imports the moxha functions used here; moxha raises an informative error if the X-ray dependencies are missing.
 
     AI-generated: claude-opus-5-5
     """
-    try:
-        from moxha.observations import Observation
-        from moxha.particle_dataset import dataset_from_gas_particles, halo_dictionary
-    except ImportError as error:
-        raise ImportError(
-            f"Could not import moxha ({error}). Mock X-ray observations need moxha, yt, pyxsim and soxs: install the "
-            "latter with 'pip install octavius[xray]', and moxha from its repository."
-        ) from error
+    from .moxha.observations import Observation
+    from .moxha.particle_dataset import dataset_from_gas_particles, halo_dictionary
 
     return Observation, dataset_from_gas_particles, halo_dictionary
 

@@ -1,3 +1,11 @@
+"""
+
+Helpers for the mock X-ray observations: shifted background files and image plotting.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
 from soxs.utils import mylog, parse_prng, parse_value, get_rot_mat, create_region, get_data_file, ensure_numpy_array
 import warnings
 from soxs.instrument import make_background

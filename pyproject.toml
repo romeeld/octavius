@@ -43,10 +43,28 @@ classifiers = [
 photometry = [
     "fsps>=0.5.0",
 ]
-xray = [  # mock X-ray observations; moxha itself is installed from its repository
+xray = [  # mock X-ray observations (octavius/xray, including moxha)
     "yt>=4.4",
     "pyxsim>=4.4",
     "soxs>=5.0",
+    "unyt>=3.0",
+    "pooch>=1.8",
+    "regions>=0.10",
+    "tqdm>=4.0",
+    "matplotlib>=3.9",
+]
+xray-fitting = [  # moxha's profile and spectral fits and tessellated maps, on top of the xray extra
+    "octavius[xray]",
+    "threeML",
+    "astromodels",
+    "emcee",
+    "corner",
+    "lmfit",
+    "bces",
+    "nmmn",
+    "pandas",
+    "vorbin",
+    "ipython",
 ]
 test = [
     "pytest>=8.0", 
@@ -109,3 +127,8 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# moxha (included from its own repository) keeps its original style for now; genuine errors such as undefined names
+# are still reported. TODO: tidy these as the code is modified
+"octavius/xray/moxha/*" = ["E402", "E711", "E712", "E722", "F401", "F403", "F405", "F541", "F811", "F841"]

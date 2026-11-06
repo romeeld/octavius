@@ -1,4 +1,12 @@
 """
+
+Builds the in-memory yt datasets of gas particles (e.g. supplied by Octavius) that moxha observes.
+
+Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
+
+"""
+
+"""
 Builds an in-memory yt dataset of SPH gas particles from plain arrays, so that moxha can observe gas
 supplied by another code (e.g. Octavius, which reads SWIFT, GIZMO and TNG snapshots) rather than a
 snapshot file that yt loads itself.
