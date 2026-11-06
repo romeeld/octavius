@@ -10,6 +10,8 @@ This section contains more detailed information on configuring the pipeline, wor
 
 [Lightcones](lightcones.md): how to build lightcones of galaxies or haloes from a set of catalogues.
 
+[Mock X-ray Observations](xray.md): how to make mock X-ray observations of haloes with moxha.
+
 [Format-Specific Information](format_specific.md): for simulation and halo catalogue-specific details.
 
 [Caesar Users Guide](caesar_users_guide.md): a page for users of `caesar` looking to try its hopeful successor.
@@ -21,6 +23,7 @@ configuration
 catalogues
 standalone_analysis
 lightcones
+xray
 format_specific
 caesar_users_guide
 ```
