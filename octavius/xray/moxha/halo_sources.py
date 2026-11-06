@@ -53,12 +53,8 @@ def halos_from_octavius(catalogue_path, halo_indices, centre="minpot_pos"):
 
         # converted to physical kpc: comoving units ("kpccm") only exist within a yt dataset's unit registry,
         # and yt converts physical lengths back to the snapshot's comoving frame itself
-        centres = haloes.get_dataset(centre, to_units="kpc", to_physical=True)[
-            halo_indices
-        ]
-        r500 = haloes.get_dataset("r500c", to_units="kpc", to_physical=True)[
-            halo_indices
-        ]
+        centres = haloes.get_dataset(centre, to_units="kpc", to_physical=True)[halo_indices]
+        r500 = haloes.get_dataset("r500c", to_units="kpc", to_physical=True)[halo_indices]
         m500 = haloes.get_dataset("m500c", to_units="Msun")[halo_indices]
 
     return [

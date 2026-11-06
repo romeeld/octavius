@@ -9,10 +9,10 @@ try:
 except:
     pass
 try:
-    from . import profilefits 
+    from . import profilefits
 except:
     pass
 try:
-    from . import tessmaps       
+    from . import tessmaps
 except:
     pass
