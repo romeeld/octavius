@@ -14,6 +14,8 @@ from astropy.cosmology import FlatLambdaCDM
 from soxs.instrument import RedistributionMatrixFile
 import soxs
 from soxs.instrument_registry import instrument_registry
+from soxs.events.images import make_image
+from soxs.events.utils import _region_filter
 import os
 from astropy.io import fits
 from astropy.units import arcmin, Mpc
@@ -31,6 +33,35 @@ import math
 import time
 import astropy
 from regions import PixCoord, PixelRegion, Region, Regions, SkyRegion, CirclePixelRegion
+
+
+def _hot_pixel_region(hot_pixels, reblock):
+    """
+    The boxes covering an annulus image's hot pixels (image pixel indices x, y), as DS9 image-coordinate regions in
+    the event files' pixel coordinates, for removing their events with soxs.filter_events(..., exclude=True). Image
+    pixel i covers event coordinates 0.5 + i * reblock to 0.5 + (i + 1) * reblock (the event pixel grid starts at
+    0.5), and DS9 image coordinates are one more than the coordinates regions works in, so the box is centred at
+    (i + 0.5) * reblock + 1.5 (moxha's + 1 put it half a pixel off the hot pixel).
+
+    AI-generated: claude-opus-5-5
+    """
+    boxes = "".join(
+        f"box({((x + 0.5) * reblock) + 1.5}i, {((y + 0.5) * reblock) + 1.5}i, {reblock}i,{reblock}i,0)\n"
+        for x, y in hot_pixels
+    )
+    return Regions.parse(f"# Region file format: DS9\nimage\n{boxes}", format="ds9")
+
+
+def _masking_correction(n_annulus_pixels, n_hot_pixels):
+    """
+    Factor correcting an annulus's counts for the area of its masked hot pixels, n / (n - n_hot), where n is the
+    number of pixels with counts; 1 when no pixel is left (an empty annulus, which used to divide by zero).
+
+    AI-generated: claude-opus-5-5
+    """
+    if n_annulus_pixels - n_hot_pixels <= 0:
+        return 1.0
+    return n_annulus_pixels / (n_annulus_pixels - n_hot_pixels)
 
 
 def _plot_image(fits_file, **kwargs):
@@ -160,6 +191,7 @@ class PostProcess:
         max_ann_width=20,
         overwrite=False,
         edge_rstep_mult=4,
+        fast_annulus_search=True,
     ):
         """
         Function to use generate cleaned, deprojected annuli and record their spectras from the observations. Observations corresponding to currently active halos and instruments will be processed.
@@ -172,11 +204,13 @@ class PostProcess:
                     hot_pix_threshold: Pixels in an annulus with a photon count larger than hot_pix_threshold * annulus median will be masked. Default = 2
                     simple_bkngd_subtract: Simply subtract the (average) noise spectrum from the cleaned blank-sky observations from the signal spectrum. Default = True
                     max_ann_width: The maximum width of the outer annulus you want to allow in arcsecs. If the outer annulus reaches this width without the S2N threshold being achived then the outer radius is moved in by 25% of max_ann_width. Default = 10
+                    fast_annulus_search: Find each accepted annulus by testing the candidate annuli in memory, and write files only for the accepted ones; gives the same annuli and spectra as testing every candidate with files (False). Default = True
 
         Returns:
 
         """
         self._edge_rstep_mult = edge_rstep_mult
+        self._fast_annulus_search = fast_annulus_search
         for i, halo in enumerate(self.active_halos):
             halo_idx = halo["index"]
             self._simple_bkgnd_subtract = simple_bkngd_subtract
@@ -387,8 +421,14 @@ class PostProcess:
 
         self._evts_fitsfile = f"{self.evts_path}/{self.idx_instr_tag}_evt.fits"
         self._make_chip_cutout()
+        fast_search = self._fast_annulus_search
+        if fast_search:
+            self._load_search_events()
 
         while self._r_i_in >= self._r_step:
+            # skip, in memory, the candidate annuli that would be rejected; the next candidate is then tested with files
+            expect_acceptance = self._skip_rejected_trials(plate_scale_arcsec_per_pix) if fast_search else False
+            annulus_number_before = self._annulus_number
             if self._annulus_number != 0:
                 self._r_i_in -= self._r_step
             else:
@@ -431,6 +471,12 @@ class PostProcess:
                     good_S2N_fraction,
                     plate_scale_arcsec_per_pix,
                 )
+            if expect_acceptance and self._annulus_number == annulus_number_before:
+                self._logger.warning(
+                    "The in-memory annulus search accepted an annulus that the file-based test rejected; continuing "
+                    "with the file-based search."
+                )
+                fast_search = False
             continue
 
         if self._annulus_number == 0:
@@ -438,8 +484,158 @@ class PostProcess:
             return
 
         self._plot_cleaned_cutout_region(keep_annuli_img)
-        np.save(f"{self.annuli_path}/DATA/{self.idx_instr_tag}_pixel_radii.npy", self._annuli_radius_arr)
+        # each entry is [annulus number, r_in, r_out, [x, y]], so an object array (numpy 2 no longer makes it implicitly)
+        np.save(
+            f"{self.annuli_path}/DATA/{self.idx_instr_tag}_pixel_radii.npy",
+            np.array(self._annuli_radius_arr, dtype=object),
+            allow_pickle=True,
+        )
         self._convert_pixcoords_to_kpc()
+
+    def _load_search_events(self):
+        """
+        Reads the observation's and the blank sky's events, and the response's channels, for the in-memory annulus
+        search (_trial_good_fraction).
+
+        AI-generated: claude-opus-5-5
+        """
+        self._search_events = {}
+        for name, evt_file in (
+            ("signal", self._),
+            ("background", f"{self._bkgnd_evts_path}/{self._bkgnd_idx_instr_tag}_evt.fits"),
+        ):
+            with fits.open(evt_file) as hdul:
+                events = fits.BinTableHDU(data=hdul["EVENTS"].data.copy(), header=hdul["EVENTS"].header.copy())
+                events.name = "EVENTS"
+            energy = events.data["ENERGY"]
+            in_band = (energy > self.emin * 1000.0) & (energy < self.emax * 1000.0)  # as soxs.filter_events
+            self._search_events[name] = (events, in_band)
+
+        header = self._search_events["signal"][0].header
+        rmf = RedistributionMatrixFile(header["RESPFILE"])
+        self._search_channels = (rmf.n_ch, rmf.cmin, header["CHANTYPE"])
+        self._search_energy_bins = 0.5 * (rmf.ebounds_data["E_MIN"] + rmf.ebounds_data["E_MAX"])
+        rmf.handle.close()
+        self._search_shell_spectra = {}  # deprojected spectra of the accepted annuli, read when first needed
+
+    def _search_annulus(self, name, region):
+        """
+        In memory, as for the files: the events of the observation (name "signal") or blank sky ("background") within
+        the annulus region and energy range, their image, its hot pixels and masking correction (using the signal's
+        pixel median, self._search_pixel_median, for the background), and the spectrum (counts and count rate) of
+        the events outside the hot pixels.
+
+        AI-generated: claude-opus-5-5
+        """
+        events, in_band = self._search_events[name]
+        selected = _region_filter(events, region) & in_band
+        annulus = fits.BinTableHDU(data=events.data[selected], header=events.header)
+        annulus.name = "EVENTS"
+        image = make_image(
+            fits.HDUList([fits.PrimaryHDU(), annulus]), emin=self.emin, emax=self.emax, reblock=self._reblock
+        ).data
+
+        if name == "signal":
+            self._search_pixel_median = np.median(np.array(image[np.where(image > 0)]))
+        hot = np.where(image > self._hot_pix_thresh * self._search_pixel_median)
+        hot_pixels = list(zip(hot[1], hot[0]))  # image x, y
+        masking_correction = _masking_correction(len(np.where(image > 0)[0]), len(hot_pixels))
+        if len(hot_pixels) > 0:
+            in_band = (annulus.data["ENERGY"] > self.emin * 1000.0) & (annulus.data["ENERGY"] < self.emax * 1000.0)
+            kept = _region_filter(annulus, _hot_pixel_region(hot_pixels, self._reblock), exclude=True) & in_band
+            annulus = fits.BinTableHDU(data=annulus.data[kept], header=events.header)
+
+        n_channels, first_channel, channel_type = self._search_channels
+        spectrum = np.bincount(annulus.data[channel_type], minlength=n_channels + first_channel)[first_channel:]
+        exposure = events.header["EXPOSURE"] - 0.0  # as soxs.filter_events and write_spectrum set it
+        return spectrum.astype("int32"), spectrum / exposure, masking_correction
+
+    def _trial_good_fraction(self, r_i_in, r_i_out):
+        """
+        The good S/N fraction of the deprojected spectrum of the annulus from r_i_in to r_i_out (pixels), computed in
+        memory exactly as _get_cleaned_signal_annulus, _get_cleaned_bkgnd_annulus, _deproject_annulus and
+        _determine_good_fraction compute it with files: including the integer counts column of the spectrum files.
+
+        AI-generated: claude-opus-5-5
+        """
+        region = Regions.parse(
+            f"# Region file format: DS9\nimage\nannulus({float(self.brightest_pos_pixels[0] + 1.5)}, {float(self.brightest_pos_pixels[1] + 1.5)}, {r_i_in}, {r_i_out})\n",
+            format="ds9",
+        )
+        counts, rate, signal_correction = self._search_annulus("signal", region)
+        bkgnd_counts, bkgnd_rate, bkgnd_correction = self._search_annulus("background", region)
+
+        if self._num_backgrounds > 0 and self._simple_bkgnd_subtract:
+            counts[:] = (signal_correction * np.copy(counts)) - (bkgnd_correction * bkgnd_counts)
+            rate[:] = (signal_correction * np.copy(rate)) - (bkgnd_correction * bkgnd_rate)
+            counts[np.where(counts < 0)] = 0
+            rate[np.where(rate < 0)] = 0
+
+        for spectrum_number, r_j_in, r_j_out, _ in self._annuli_radius_arr:
+            if spectrum_number not in self._search_shell_spectra:
+                with fits.open(
+                    f"{self.annuli_path}/fits_and_phas/{self.idx_instr_tag}_{str(spectrum_number).zfill(2)}_deprojected.pha"
+                ) as hdul:
+                    self._search_shell_spectra[spectrum_number] = (
+                        np.array(hdul["SPECTRUM"].data.field("COUNTS")),
+                        np.array(hdul["SPECTRUM"].data.field("COUNT_RATE")),
+                    )
+            S_j_counts, S_j_rates = self._search_shell_spectra[spectrum_number]
+            geometric_factor = (
+                (r_j_in**2 - r_i_out**2) ** (3 / 2)
+                + (r_j_out**2 - r_i_in**2) ** (3 / 2)
+                - (r_j_out**2 - r_i_out**2) ** (3 / 2)
+                - (r_j_in**2 - r_i_in**2) ** (3 / 2)
+            ) / ((r_j_out**2 - r_j_in**2) ** (3 / 2))
+            counts[:] = np.copy(counts) - (geometric_factor * S_j_counts)
+            rate[:] = np.copy(rate) - (geometric_factor * S_j_rates)
+
+        counts[np.where(counts < 0)] = 0
+        rate[np.where(rate < 0)] = 0
+        self._search_spectrum = (counts, rate)  # kept for checking against the file-based spectrum
+
+        low_idx = (np.abs(self._search_energy_bins - self.S2N_range[0])).argmin()
+        high_idx = (np.abs(self._search_energy_bins - self.S2N_range[1])).argmin()
+        counts_in_range = np.array(counts)[low_idx:high_idx]
+        num_good = len(counts_in_range[counts_in_range > self.S2N**2])
+        return round(num_good / (high_idx - low_idx), 3)
+
+    def _skip_rejected_trials(self, plate_scale_arcsec_per_pix):
+        """
+        Steps through the candidate annuli as _do_deprojections does, testing each in memory, and applies the state
+        changes of those that are rejected (including the outer edge's shift), stopping just before the first that
+        is accepted, so that _do_deprojections tests it, with files, next. Returns whether it found one (False if the
+        search reaches the centre first).
+
+        AI-generated: claude-opus-5-5
+        """
+        while self._r_i_in >= self._r_step:
+            r_i_in, edge_attempt = self._r_i_in, self._edge_attempt
+            if self._annulus_number != 0:
+                r_i_in -= self._r_step
+            else:
+                edge_attempt += 1
+                r_i_in -= self._edge_rstep_mult * self._r_step
+            if r_i_in <= 0:
+                return False
+            if r_i_in <= self._r_step:
+                r_i_in = 0.01
+            r_i_in = round(r_i_in, 6)
+
+            good_S2N_fraction = self._trial_good_fraction(r_i_in, self._r_i_out)
+            if good_S2N_fraction >= self.S2N_good_fraction or r_i_in <= self._r_step:
+                return True
+
+            self._r_i_in, self._edge_attempt = r_i_in, edge_attempt
+            self._write_log(
+                f"r_i_in = {self._r_i_in}, r_i_out = {self._r_i_out},    Good Fraction = {good_S2N_fraction}  ({self.idx_instr_tag}, Annulus {self._annulus_number}; in-memory search)"
+            )
+            if self._annulus_number == 0 and (self._r_i_out - self._r_i_in) >= (
+                plate_scale_arcsec_per_pix * self._max_ann_width
+            ):
+                self._r_i_out = self._r_i_in + 0.75 * (self._r_i_out - self._r_i_in)
+                self._r_i_in = self._r_i_out
+        return False
 
     def _make_chip_cutout(
         self,
@@ -515,32 +711,19 @@ class PostProcess:
             hot_pixels = np.array(list(zip(hot_pixels[1], hot_pixels[0])))  # In FITS x and y are mixed up
             all_annulus_pixels = list(np.array(np.where(hdul[0].data > 0)))
             all_annulus_pixels = np.array(list(zip(all_annulus_pixels[1], all_annulus_pixels[0])))
-            self._signal_annulus_masking_correction = len(all_annulus_pixels) / (
-                len(all_annulus_pixels) - len(hot_pixels)
-            )
+            self._signal_annulus_masking_correction = _masking_correction(len(all_annulus_pixels), len(hot_pixels))
 
         if len(hot_pixels) > 0:
             self._logger.info(
                 f"Removing {len(hot_pixels)} Bad Signal Annulus Pixels ({self.idx_instr_tag}, Annulus {self._annulus_number})"
             )
-            for i, hot_pixel in tqdm(
-                enumerate(hot_pixels),
-                desc=f"MOXHA - [INFO    ] ---{''.ljust(26, ' ')}- Removing Bad Signal Annulus Pixels (Annulus {self._annulus_number})    ".ljust(
-                    60, " "
-                ),
-                total=len(hot_pixels),
-            ):
-                self._dirty_pix.append(hot_pixel)
-                reg = f"# Region file format: DS9\nimage\n-box({((hot_pixel[0] + 0.5) * self._reblock) + 1}i, {((hot_pixel[1] + 0.5) * self._reblock) + 1}i, {self._reblock}i,{self._reblock}i,0)\n"
-                if i == 0:
-                    total_region = Regions.parse(reg, format="ds9")[0]
-                else:
-                    pixel_region = Regions.parse(reg, format="ds9")[0]
-                    total_region = total_region ^ pixel_region
+            self._dirty_pix.extend(hot_pixels)
+            # remove the events in the hot pixels (exclude=True: moxha's "-box" regions made SOXS remove every event)
             soxs.filter_events(
                 f"{self._raw_uncleaned_candidate}_evt.fits",
                 f"{self._raw_uncleaned_candidate}_evt.fits",
-                region=total_region,
+                region=_hot_pixel_region(hot_pixels, self._reblock),
+                exclude=True,
                 emin=self.emin,
                 emax=self.emax,
                 overwrite=True,
@@ -622,32 +805,18 @@ class PostProcess:
             hot_pixels = np.array(list(zip(hot_pixels[1], hot_pixels[0])))  # In FITS x and y are mixed up
             all_annulus_pixels = list(np.array(np.where(hdul[0].data > 0)))
             all_annulus_pixels = np.array(list(zip(all_annulus_pixels[1], all_annulus_pixels[0])))
-            self._bkgrnd_annulus_masking_correction = len(all_annulus_pixels) / (
-                len(all_annulus_pixels) - len(hot_pixels)
-            )
+            self._bkgrnd_annulus_masking_correction = _masking_correction(len(all_annulus_pixels), len(hot_pixels))
 
         if len(hot_pixels) > 0:
             self._logger.info(
                 f"Removing All Bad Bkgrnd Annulus Pixels ({self.idx_instr_tag}, Annulus {self._annulus_number})"
             )
-            for i, hot_pixel in tqdm(
-                enumerate(hot_pixels),
-                desc=f"MOXHA - [INFO    ] ---{''.ljust(26, ' ')}- Removing Bad Background Annulus Pixels ({self.idx_instr_tag}, Annulus {self._annulus_number})".ljust(
-                    60, " "
-                ),
-                total=len(hot_pixels),
-            ):
-                reg = f"# Region file format: DS9\nimage\n-box({((hot_pixel[0] + 0.5) * self._reblock) + 1}i, {((hot_pixel[1] + 0.5) * self._reblock) + 1}i, {self._reblock}i,{self._reblock}i,0)\n"
-                if i == 0:
-                    total_region = Regions.parse(reg, format="ds9")[0]
-                else:
-                    pixel_region = Regions.parse(reg, format="ds9")[0]
-                    total_region = total_region ^ pixel_region
-
+            # remove the events in the hot pixels (exclude=True: moxha's "-box" regions made SOXS remove every event)
             soxs.filter_events(
                 f"{self._bkgnd_uncleaned}_evt.fits",
                 f"{self._bkgnd_uncleaned}_evt.fits",
-                region=total_region,
+                region=_hot_pixel_region(hot_pixels, self._reblock),
+                exclude=True,
                 emin=self.emin,
                 emax=self.emax,
                 overwrite=True,
