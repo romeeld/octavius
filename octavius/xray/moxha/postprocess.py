@@ -33,6 +33,20 @@ import astropy
 from regions import PixCoord, PixelRegion, Region, Regions, SkyRegion, CirclePixelRegion
 
 
+def _plot_image(fits_file, **kwargs):
+    """
+    soxs.plot_image() for the diagnostic maps, falling back to a linear 0-1 scale when the image has no positive pixels
+    (e.g. an empty background annulus), where a log stretch cannot set its colour scale.
+
+    AI-generated: claude-opus-5-5
+    """
+    with fits.open(fits_file) as hdul:
+        empty = not np.any(hdul[kwargs.get("hdu", "IMAGE")].data > 0)
+    if empty:
+        kwargs.update(stretch="linear", vmin=0.0, vmax=1.0)
+    return soxs.plot_image(fits_file, **kwargs)
+
+
 class PostProcess:
     """
     Class for Post-Processing the observations made through the Observation class. We will clean and deproject the observation into radial annuli based on signal-to-noise, and subtract off the background, with an end-product being spectra that can be fit by the FitRadialSpectra class.
@@ -233,10 +247,14 @@ class PostProcess:
                 self._bkgnd_evts_path = Path(
                     self._top_save_path / self.instrument_name / "OBS" / self._bkgnd_idx_instr_tag
                 )
-                shutil.copy(
-                    f"{self._bkgnd_evts_path}/{self._bkgnd_idx_instr_tag}_img.png",
-                    f"{self._bkgnd_annuli_path}/{self._bkgnd_idx_instr_tag}_img.png",
-                )
+                # ObservePhotons now writes images per energy band only, so make the full-band images used below
+                self._write_full_band_image(self._bkgnd_evts_path, self._bkgnd_idx_instr_tag)
+                self._write_full_band_image(self.evts_path, self.idx_instr_tag)
+                if os.path.exists(f"{self._bkgnd_evts_path}/{self._bkgnd_idx_instr_tag}_img.png"):
+                    shutil.copy(
+                        f"{self._bkgnd_evts_path}/{self._bkgnd_idx_instr_tag}_img.png",
+                        f"{self._bkgnd_annuli_path}/{self._bkgnd_idx_instr_tag}_img.png",
+                    )
                 self._logger.info(
                     f" copying {self._bkgnd_evts_path}/{self._bkgnd_idx_instr_tag}_img.png to {self._bkgnd_annuli_path}/{self._bkgnd_idx_instr_tag}_img.png"
                 )
@@ -260,10 +278,11 @@ class PostProcess:
                 with fits.open(f"{spectra_path}/{self.idx_instr_tag}_whole_image_evt.pha") as hdul:
                     total_counts = np.sum(hdul[1].data.field("COUNTS"))
                     self._write_log(f"Total counts = {total_counts}")
-                shutil.copy(
-                    f"{self.evts_path}/{self.idx_instr_tag}_img.png",
-                    f"{self.annuli_path}/{self.idx_instr_tag}_entire_obs_img.png",
-                )
+                if os.path.exists(f"{self.evts_path}/{self.idx_instr_tag}_img.png"):
+                    shutil.copy(
+                        f"{self.evts_path}/{self.idx_instr_tag}_img.png",
+                        f"{self.annuli_path}/{self.idx_instr_tag}_entire_obs_img.png",
+                    )
 
                 if self._chip_width == None:
                     self._r_i_out = round(self.img_width_pixels, 5)  # round(width_from_brightest_degrees,5)
@@ -272,6 +291,19 @@ class PostProcess:
                 self._r_step = pixel_steps
                 self._do_deprojections()
                 self._logger.info(f"Finished Creating Deprojected Annuli for {self.idx_instr_tag}")
+
+    def _write_full_band_image(self, evts_path, idx_instr_tag):
+        """
+        Writes an observation's full-band (emin-emax) image, {idx_instr_tag}_img.fits, from its events file if it is
+        not there: ObservePhotons now writes images per energy band only, but the annulus finding uses the full band.
+
+        AI-generated: claude-opus-5-5
+        """
+        img_fitsfile = f"{evts_path}/{idx_instr_tag}_img.fits"
+        if not os.path.exists(img_fitsfile):
+            soxs.write_image(
+                f"{evts_path}/{idx_instr_tag}_evt.fits", img_fitsfile, emin=self.emin, emax=self.emax, overwrite=True
+            )
 
     def _write_log(self, message):
         now = datetime.datetime.now()
@@ -308,7 +340,7 @@ class PostProcess:
             # FIXME: hdu is never defined here, so this raises a NameError; probably the image HDU written by soxs.write_image (0?)
             f[hdu].data = ndimage.gaussian_filter(f[hdu].data, sigma=3)  # noqa: F821
             f.close()
-            fig, ax = soxs.plot_image(
+            fig, ax = _plot_image(
                 img_fitsfile,
                 stretch="log",
                 cmap="cubehelix",
@@ -432,7 +464,7 @@ class PostProcess:
             emax=self.emax,
             overwrite=True,
         )
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self.annuli_path}/fits_and_phas/{self.idx_instr_tag}_considered_region_img.fits",
             stretch="log",
             cmap="cubehelix",
@@ -566,7 +598,7 @@ class PostProcess:
             overwrite=True,
             reblock=self._reblock,
         )
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self._bkgnd_uncleaned}_img.fits",
             stretch="log",
             cmap="cubehelix",
@@ -655,7 +687,7 @@ class PostProcess:
             overwrite=True,
             reblock=self._reblock,
         )
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self._bkgnd_cleaned}_img.fits",
             stretch="log",
             cmap="cubehelix",
@@ -828,7 +860,7 @@ class PostProcess:
         )
         shutil.move(f"{self._raw_cleaned_candidate}.pha", f"{self._accepted_candidate}.pha")
         shutil.move(f"{self._raw_cleaned_candidate}_evt.fits", f"{self._accepted_candidate}_evt.fits")
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self._raw_uncleaned_candidate}_img.fits",
             stretch="sqrt",
             cmap="cubehelix",
@@ -849,7 +881,7 @@ class PostProcess:
             overwrite=True,
             reblock=self._reblock,
         )
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self.annuli_path}/fits_and_phas/{self.idx_instr_tag}_{str(self._annulus_number).zfill(2)}_raw_cleaned_img.fits",
             stretch="sqrt",
             cmap="cubehelix",
@@ -918,7 +950,7 @@ class PostProcess:
         )
 
         # if self._annulus_number == 0:
-        #     fig, ax = soxs.plot_image(f"{self._raw_uncleaned_candidate}_img.fits", stretch='sqrt', cmap='twilight',)
+        #     fig, ax = _plot_image(f"{self._raw_uncleaned_candidate}_img.fits", stretch='sqrt', cmap='twilight',)
         #     plt.savefig(f"{self.annuli_path}/map_pngs/{self.idx_instr_tag}_{str(self._annulus_number).zfill(2)}_uncleaned_edge_attempt_{self._edge_attempt}.png")
 
         os.remove(f"{self._raw_cleaned_candidate}_evt.fits")
@@ -966,7 +998,7 @@ class PostProcess:
                 overwrite=True,
             )
 
-        fig, ax = soxs.plot_image(
+        fig, ax = _plot_image(
             f"{self.annuli_path}/fits_and_phas/{self.idx_instr_tag}_considered_region_cleaned_img.fits",
             stretch="log",
             cmap="cubehelix",
@@ -1021,8 +1053,8 @@ class PostProcess:
         r_i_in_sep = center_pos_degrees.separation(r_i_in_pos_degrees)  # .arcmin  * arcmin
         r_i_out_sep = center_pos_degrees.separation(r_i_out_pos_degrees)  # .arcmin  * arcmin
 
-        r_i_in_kpc = (r_i_in_sep.radian * self.cosmo.angular_diameter_distance(z=self._redshift)).to("kpc")
-        r_i_out_kpc = (r_i_out_sep.radian * self.cosmo.angular_diameter_distance(z=self._redshift)).to("kpc")
+        r_i_in_kpc = (r_i_in_sep.radian * self.cosmo.angular_diameter_distance(self._redshift)).to("kpc")
+        r_i_out_kpc = (r_i_out_sep.radian * self.cosmo.angular_diameter_distance(self._redshift)).to("kpc")
         return r_i_in_kpc, r_i_out_kpc, r_i_in_sep, r_i_out_sep
 
     def _append_markers(self, ax, img_file, reblock=1):
