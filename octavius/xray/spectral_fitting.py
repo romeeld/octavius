@@ -350,6 +350,11 @@ def fit_apec_spectrum(
         raise ValueError("The spectrum has no counts in the energy range fitted.")
 
     fit_abund = abund is None
+    n_free = 3 if fit_abund else 2
+    if n_groups <= n_free:
+        raise ValueError(
+            f"Only {n_groups} (grouped) channels in {emin}-{emax} keV for {n_free} free parameters: too few to fit."
+        )
     log_kT_bounds = np.log10(kT_range)
 
     def unit_model(kT: float, abundance: float) -> np.ndarray:
