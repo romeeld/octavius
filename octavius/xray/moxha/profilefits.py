@@ -401,7 +401,7 @@ class HaloAnalysis:
     def _check_data(self):
         if self._chip_rad_arcmin != None:
             chip_width_kpc = (
-                (self._chip_rad_arcmin * (u.arcmin / u.radian) * self.cosmo.angular_diameter_distance(z=self.redshift))
+                (self._chip_rad_arcmin * (u.arcmin / u.radian) * self.cosmo.angular_diameter_distance(self.redshift))
                 .to("kpc")
                 .value
             )
@@ -2863,7 +2863,7 @@ class HaloAnalysis:
             # nx = instrument_registry[self.instrument_name]["num_pixels"]
             # plate_scale = arcsec * instrument_registry[self.instrument_name]["fov"]/nx  ### arcsec per pixel
 
-            ang_diam_dist = self.cosmo.angular_diameter_distance(z=self.redshift) / radian
+            ang_diam_dist = self.cosmo.angular_diameter_distance(self.redshift) / radian
             Xray_HSE_R500_upper = self.Xray_HSE_R500 + self.Xray_HSE_R500_spread[1]
             Xray_HSE_R500_lower = self.Xray_HSE_R500 - self.Xray_HSE_R500_spread[0]
             print("Xray_HSE_R500_upper", Xray_HSE_R500_upper)
@@ -3435,7 +3435,7 @@ class HaloAnalysis:
 
         if chip_rad_arcmin != None:
             chip_width_kpc = (
-                (chip_rad_arcmin * (u.arcmin / u.radian) * self.cosmo.angular_diameter_distance(z=self.redshift))
+                (chip_rad_arcmin * (u.arcmin / u.radian) * self.cosmo.angular_diameter_distance(self.redshift))
                 .to("kpc")
                 .value
             )
@@ -4207,7 +4207,7 @@ class HaloSample:
             # nx = instrument_registry[instrument_name]["num_pixels"]
             # plate_scale = arcsec * instrument_registry[instrument_name]["fov"]/nx  ### arcsec per pixel
 
-            ang_diam_dist = cosmo.angular_diameter_distance(z=redshift) / radian  # noqa: F821
+            ang_diam_dist = cosmo.angular_diameter_distance(redshift) / radian  # noqa: F821
 
             arcsec_Xray_HSE_R500 = (Xray_HSE_R500 / ang_diam_dist).to("arcsec")  # noqa: F821
             arcsec_Xray_HSE_R500_upper = (Xray_HSE_R500_upper / ang_diam_dist).to("arcsec")  # noqa: F821
@@ -5896,14 +5896,14 @@ class HaloSample:
         if hubble_correction:
             y_data = np.array(
                 [
-                    halo[y_property_key].value * (self.cosmo.H(z=halo["redshift"]) / self.cosmo.H(z=0)) ** (Ez_power)
+                    halo[y_property_key].value * (self.cosmo.H(halo["redshift"]) / self.cosmo.H(0)) ** (Ez_power)
                     for halo in halo_samples
                 ]
             )
             if yerr_key != None:
                 y_data_err = np.array(
                     [
-                        halo[yerr_key].value * (self.cosmo.H(z=halo["redshift"]) / self.cosmo.H(z=0)) ** (Ez_power)
+                        halo[yerr_key].value * (self.cosmo.H(halo["redshift"]) / self.cosmo.H(0)) ** (Ez_power)
                         for halo in halo_samples
                     ]
                 )
@@ -5929,7 +5929,7 @@ class HaloSample:
             # print(marker_color)
 
             if hubble_correction:
-                Ez_correction = (self.cosmo.H(z=halo["redshift"]) / self.cosmo.H(z=0)) ** (Ez_power)
+                Ez_correction = (self.cosmo.H(halo["redshift"]) / self.cosmo.H(0)) ** (Ez_power)
             else:
                 Ez_correction = 1
 
@@ -6270,7 +6270,7 @@ class HaloSample:
                     )
                     print(f"Using sequence of provided redshifts from the sataset to calculate E(z) factors")
                     Ez_correction = np.asarray(
-                        [(self.cosmo.H(z=z) / self.cosmo.H(z=0)) ** (Ez_power) for z in dset_redshift_data]
+                        [(self.cosmo.H(z) / self.cosmo.H(0)) ** (Ez_power) for z in dset_redshift_data]
                     )
                     print("E(z) correction factors", [" %.2f" % x for x in Ez_correction[np.argsort(dset_x_data)]])
                     print(
@@ -6283,9 +6283,7 @@ class HaloSample:
 
                 elif dset_dict.get("needs_hubble_correct", False):
                     print(f"Using const E(z) = {dset_dict.get('hubble_correct_z')}")
-                    Ez_correction = (self.cosmo.H(z=dset_dict.get("hubble_correct_z")) / self.cosmo.H(z=0)) ** (
-                        Ez_power
-                    )
+                    Ez_correction = (self.cosmo.H(dset_dict.get("hubble_correct_z")) / self.cosmo.H(0)) ** (Ez_power)
                     dset_y_data = np.asarray(dset_y_data * Ez_correction)
 
                 try:
@@ -8903,7 +8901,7 @@ class HaloSample:
                     rho_crit = halo["rho_crit"]
                 except:
                     print("rho crit not present in halo dict. Will use astropy rho_crit(z) instead")
-                    rho_crit = self.cosmo.critical_density(z=self.redshift)
+                    rho_crit = self.cosmo.critical_density(self.redshift)
 
                 kT_analytic = G * M500 * mu * m_H / R500
                 ne_analytic = 500 * fb * rho_crit / (mu_e * m_H)
@@ -9187,7 +9185,7 @@ class HaloSample:
                     rho_crit = halo["rho_crit"]
                 except:
                     print("rho crit not present in halo dict. Will use astropy rho_crit(z) instead")
-                    rho_crit = self.cosmo.critical_density(z=self.redshift)
+                    rho_crit = self.cosmo.critical_density(self.redshift)
 
                 kT_analytic = G * M500 * mu * m_H / R500
                 ne_analytic = 500 * fb * rho_crit / (mu_e * m_H)
@@ -10392,14 +10390,14 @@ class HaloSample:
         if hubble_correction:
             y_data = np.array(
                 [
-                    halo[y_property_key].value * (self.cosmo.H(z=halo["redshift"]) / self.cosmo.H(z=0)) ** (Ez_power)
+                    halo[y_property_key].value * (self.cosmo.H(halo["redshift"]) / self.cosmo.H(0)) ** (Ez_power)
                     for halo in halo_samples
                 ]
             )
             if yerr_key != None:
                 y_data_err = np.array(
                     [
-                        halo[yerr_key].value * (self.cosmo.H(z=halo["redshift"]) / self.cosmo.H(z=0)) ** (Ez_power)
+                        halo[yerr_key].value * (self.cosmo.H(halo["redshift"]) / self.cosmo.H(0)) ** (Ez_power)
                         for halo in halo_samples
                     ]
                 )
