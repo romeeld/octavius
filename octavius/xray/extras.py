@@ -2,25 +2,18 @@
 
 Checks that the optional packages for the X-ray modules are installed, with an error saying how to install them if not:
 octavius[xray] for mock observations (yt, pyXSIM, SOXS), and octavius[xray-fitting] for the profile and spectral fits
-and tessellated maps (threeML, emcee, lmfit and others).
+and tessellated maps (emcee, lmfit, vorbin and others).
 
 """
 
 from importlib.util import find_spec
 
 XRAY_PACKAGES = ["yt", "pyxsim", "soxs", "unyt", "pooch", "regions", "tqdm"]
-XRAY_FITTING_PACKAGES = [
-    "threeML",
-    "astromodels",
-    "emcee",
-    "corner",
-    "lmfit",
-    "bces",
-    "nmmn",
-    "pandas",
-    "vorbin",
-    "IPython",
-]
+# what each of moxha's fitting modules needs beyond octavius[xray]
+SPECTRAL_FITTING_PACKAGES = ["emcee"]
+TESSELLATION_PACKAGES = ["emcee", "vorbin"]
+PROFILE_FITTING_PACKAGES = ["emcee", "corner", "lmfit", "bces", "nmmn", "pandas", "IPython"]
+XRAY_FITTING_PACKAGES = sorted(set(SPECTRAL_FITTING_PACKAGES + TESSELLATION_PACKAGES + PROFILE_FITTING_PACKAGES))
 
 
 def require_packages(packages: list[str], extra: str, purpose: str) -> None:
