@@ -55,8 +55,6 @@ xray = [  # mock X-ray observations (octavius/xray, including moxha)
 ]
 xray-fitting = [  # moxha's profile and spectral fits and tessellated maps, on top of the xray extra
     "octavius[xray]",
-    "threeML",
-    "astromodels",
     "emcee",
     "corner",
     "lmfit",

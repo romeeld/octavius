@@ -1,16 +1,16 @@
 """
 
 Makes tessellated (Voronoi-binned) temperature and other maps from mock X-ray observations, fitting the spectrum
-of each bin.
+of each bin with an absorbed APEC model (see octavius/xray/spectral_fitting.py; moxha originally used threeML).
 
 Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
 
 """
 
 # the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
-from ..extras import XRAY_FITTING_PACKAGES, require_packages
+from ..extras import TESSELLATION_PACKAGES, require_packages
 
-require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="Tessellated X-ray maps")
+require_packages(packages=TESSELLATION_PACKAGES, extra="xray-fitting", purpose="Tessellated X-ray maps")
 
 from astropy import wcs
 from astropy.io import fits
@@ -33,11 +33,7 @@ import logging
 from soxs.instrument_registry import instrument_registry
 from .tools import soxs_plotter
 from soxs.instrument import RedistributionMatrixFile
-from ..data_files import instrument_file
-from threeML import *
-from threeML.io.package_data import get_path_of_data_file
-from astromodels.xspec.factory import XS_bapec, XS_vapec, XS_bvapec, XS_apec, XS_TBabs
-from astromodels.xspec.xspec_settings import *
+from ..spectral_fitting import XraySpectrum, fit_apec_spectrum, plot_spectral_fit
 from matplotlib.offsetbox import AnchoredText
 from collections import Counter
 import subprocess
@@ -562,16 +558,8 @@ class VoronoiTesselation:
 
     def _fit_tiles_mwe(self, overwrite):
         import os
-        import psutil
 
         import matplotlib
-        from threeML import (
-            silence_logs,
-            silence_warnings,
-            activate_logs,
-            activate_warnings,
-            update_logging_level,
-        )
         # update_logging_level("DEBUG")
 
         self._tess_cleaned_tag_spectra = f"./{self._top_save_path}/{self._instrument_name}/VTESS/{self._idx_instr_tag}/spectral_fits/{self._idx_instr_tag}"
@@ -581,19 +569,6 @@ class VoronoiTesselation:
         self._tess_cleaned_tag_fits = f"./{self._top_save_path}/{self._instrument_name}/VTESS/{self._idx_instr_tag}/fits_and_phas/{self._idx_instr_tag}"
         tiles = np.load(f"{self._tess_cleaned_tag}_tiles.npy", allow_pickle=True)
         centre_out_tiles = sorted(tiles, key=lambda d: len(d["pixels"]), reverse=True)
-
-        modapec = APEC()  # XS_bvapec()
-        modTbAbs = XS_TBabs()
-        modapec.redshift.value = self._redshift  # Source redshift
-        modapec.redshift.fix = True
-        modapec.kT.fix = False
-        modapec.abund.value = 0.3
-        modapec.abund.fix = False
-        modTbAbs.nh.value = 0.018  # A value of 1 corresponds to 1e22 cm-2
-        modTbAbs.nh.fix = True  # NH is fixed
-        absorbed_apec = modapec * modTbAbs
-        pts = PointSource("mysource", 30, 45, spectral_shape=absorbed_apec)
-        model = Model(pts)
 
         #         tracemalloc.start(25)
 
@@ -617,49 +592,29 @@ class VoronoiTesselation:
                 self._kT_data = np.full_like(hdul[0].data, fill_value=3e-2)
 
         for tile in centre_out_tiles:
-            print(f"Mem Usage: {round(float(psutil.Process(os.getpid()).memory_info().rss / 1024**3), 2)} GB")
             i = tile["tile_num"]
             pha_file = f"{self._tess_cleaned_tag_fits}_t{str(i).zfill(3)}_evt.pha"
-            with fits.open(pha_file) as hdul:
-                rmf = hdul["SPECTRUM"].header.get("RESPFILE", None)
-                arf = hdul["SPECTRUM"].header.get("ANCRFILE", None)
-            ogip_data = OGIPLike(
-                "ogip", observation=pha_file, response=instrument_file(rmf), arf_file=instrument_file(arf)
+            # TBabs x APEC (kT, abundance and norm free; redshift and nH fixed), as moxha fitted with threeML
+            spectrum = XraySpectrum.from_pha(pha_file)
+            fit_emin, fit_emax = 1.1 * self.emin, 0.9 * self.emax
+            result = fit_apec_spectrum(spectrum, redshift=self._redshift, emin=fit_emin, emax=fit_emax, nH=0.018)
+
+            tile_params = {
+                "tile_num": i,
+                "kT": result.parameter_summary("kT"),
+                "norm": result.parameter_summary("norm"),
+                "abund": result.parameter_summary("abund"),
+            }
+            plot_spectral_fit(
+                spectrum,
+                result,
+                emin=fit_emin,
+                emax=fit_emax,
+                output_path=f"{self._tess_cleaned_tag_spectra}_t{str(i).zfill(3)}_spectral_fit.png",
             )
-            ogip_data.set_active_measurements(f"{1.1 * self.emin}-{0.9 * self.emax}")
-            jl = JointLikelihood(model, DataList(ogip_data))
-            _ = jl.fit()
-            results = jl.results
-
-            tile_params = {}
-            results_dict = results.get_data_frame(error_type="equal tail", cl=0.68).to_dict(orient="index")
-            tile_params["tile_num"] = i
-            tile_params["kT"] = results_dict["mysource.spectrum.main.composite.kT_1"]
-            tile_params["norm"] = results_dict["mysource.spectrum.main.composite.K_1"]
-            tile_params["abund"] = results_dict["mysource.spectrum.main.composite.abund_1"]
-
-            # self.fit_value_arrays.append(tile_params)
-            count_fig1 = ogip_data.display_model(step=False)
-            plt.xlim(0.8 * self.emin, 1.2 * self.emax)
-            plt.xscale("linear")
-
-            at = AnchoredText(
-                f"log10 kT = {np.log10(modapec.kT.value)}, log10 norm = {np.log10(modapec.K.value)}",
-                prop=dict(size=8),
-                frameon=True,
-                loc="lower right",
-            )
-            at.patch.set_boxstyle("round,pad=0.,rounding_size=0")
-            ax = plt.gca()
-            ax.add_artist(at)
-            count_fig1.axes[0].set_ylim(bottom=1e-4)
-            # self._logger.info(f"Saving Fitting Plot under {self.annuli_path}/spectral_fits/{self.idx_instr_tag}_{str(self.tile).zfill(2)}_deprojected_fit.png")
-            plt.savefig(f"{self._tess_cleaned_tag_spectra}_t{str(i).zfill(3)}_spectral_fit.png")
-            plt.clf()
-            plt.close()
 
             for pix in tile["pixels"]:
-                self._kT_data[pix[1], pix[0]] = modapec.kT.value
+                self._kT_data[pix[1], pix[0]] = result.best_fit["kT"]
 
             fig = plt.figure(figsize=(10, 10))
             ax0 = plt.gca()
@@ -920,13 +875,3 @@ class VoronoiTesselation:
         # self.ogip_data = None
 
         # print(open_files_dict)
-        # FIXME: new_opens and open_files2_dict come from the commented-out debugging code above, so this raises a NameError
-        for new_open in new_opens:
-            if (
-                "/atomdb/APED/" in new_open
-                or "/site-packages/threeML/" in new_open
-                or "/site-packages/astromodels/" in new_open
-            ):
-                print(open_files2_dict[new_open])
-                print(f"Closing {new_open}")
-                os.close(int(open_files2_dict[new_open]))

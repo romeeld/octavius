@@ -15,7 +15,14 @@ import h5py
 import pytest
 
 from octavius import load_catalogue, build_analyser
-from octavius.xray.extras import XRAY_FITTING_PACKAGES, require_packages
+from octavius.xray.data_files import xray_data_dir
+from octavius.xray.extras import (
+    PROFILE_FITTING_PACKAGES,
+    SPECTRAL_FITTING_PACKAGES,
+    TESSELLATION_PACKAGES,
+    require_packages,
+)
+from octavius.xray.spectral_fitting import XraySpectrum, _channel_groups, _cstat, apec_table, fit_apec_spectrum
 from octavius.xray.xray_gas import _flag_within_radius
 
 
@@ -120,14 +127,98 @@ def test_require_packages() -> None:
         require_packages(packages=["numpy", "not_a_real_package"], extra="xray-fitting", purpose="Testing")
 
 
-def test_fitting_modules_need_fitting_extra() -> None:
+def test_fitting_modules_need_their_packages() -> None:
     """
-    Without the fitting packages, importing moxha's fitting modules says to install octavius[xray-fitting].
+    Importing one of moxha's fitting modules without its packages says to install octavius[xray-fitting].
     """
     pytest.importorskip("octavius.xray.moxha", exc_type=ImportError)
-    if all(find_spec(package) is not None for package in XRAY_FITTING_PACKAGES):
-        pytest.skip("the fitting packages are installed")
-
-    for module in ("profilefits", "spectralfits", "tessmaps"):
+    modules = {
+        "spectralfits": SPECTRAL_FITTING_PACKAGES,
+        "tessmaps": TESSELLATION_PACKAGES,
+        "profilefits": PROFILE_FITTING_PACKAGES,
+    }
+    for module, packages in modules.items():
+        if all(find_spec(package) is not None for package in packages):
+            continue  # installed, so it imports (or fails for other reasons tested elsewhere)
         with pytest.raises(ImportError, match=r"octavius\[xray-fitting\]"):
             importlib.import_module(f"octavius.xray.moxha.{module}")
+
+
+def test_cstat_and_channel_groups() -> None:
+    """
+    The C-statistic is zero when the model equals the data, and positive otherwise; grouping collects consecutive
+    channels to a minimum number of counts, merging a short last group into the one before.
+    """
+    data = np.array([0.0, 3.0, 2.5, 10.0])
+    assert _cstat(data, data + 1e-300) == pytest.approx(0.0, abs=1e-12)
+    assert _cstat(data, data + 1.0) > 0.0
+    assert _cstat(data, np.zeros(4)) == np.inf
+
+    counts = np.array([1.0, 1.0, 3.0, 5.0, 0.0, 1.0])
+    np.testing.assert_array_equal(_channel_groups(counts, min_counts=4), [0, 0, 0, 1, 1, 1])
+    np.testing.assert_array_equal(_channel_groups(counts, min_counts=None), np.arange(6))
+
+
+def _have_soxs_files(file_names: list[str]) -> bool:
+    """
+    Whether SOXS's data directory already holds these files (so the test does not download ~400 MB of APEC tables).
+    """
+    pytest.importorskip("soxs")
+    pytest.importorskip("emcee")
+    directory = xray_data_dir()
+    return all((directory / name).exists() for name in file_names)
+
+
+APEC_TEST_FILES = ["apec_v3.1.3_coco.fits", "apec_v3.1.3_line.fits", "tbabs_table.h5"]
+CHANDRA_TEST_FILES = ["acisi_aimpt_cy0.arf", "acisi_aimpt_cy0.rmf"]
+
+
+def simulate_chandra_spectrum(path: Path, kT: float, abund: float, norm: float, noisy: bool) -> None:
+    """
+    Writes a 50 ks Chandra ACIS-I spectrum of TBabs x APEC at z = 0.05, simulated by SOXS.
+    """
+    import soxs
+
+    generator = soxs.ApecGenerator(0.05, 12.0, 23900, broadening=True)
+    spectrum = generator.get_spectrum(kT, abund, 0.05, norm)
+    spectrum.apply_foreground_absorption(0.018, model="tbabs")
+    soxs.simulate_spectrum(spectrum, "chandra_acisi_cy0", (50.0, "ks"), str(path), overwrite=True, noisy=noisy, prng=3)
+    generator.line_handle.close()  # SOXS leaves its APEC tables open
+    generator.coco_handle.close()
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")  # SOXS leaves files open
+def test_apec_model_matches_soxs(tmp_path: Path) -> None:
+    """
+    The folded model used for fitting gives the counts that SOXS simulates for the same spectrum (without noise).
+    """
+    if not _have_soxs_files(APEC_TEST_FILES + CHANDRA_TEST_FILES):
+        pytest.skip("SOXS's APEC tables and Chandra responses are not downloaded")
+
+    simulate_chandra_spectrum(tmp_path / "exact.pha", kT=2.0, abund=0.3, norm=1e-3, noisy=False)
+    spectrum = XraySpectrum.from_pha(tmp_path / "exact.pha")
+    model = apec_table(spectrum.rmf_path, spectrum.arf_path, 0.05, 0.018).rate(2.0, 0.3, 1e-3) * spectrum.exposure
+
+    bright = spectrum.counts > 1e-3 * spectrum.counts.max()
+    np.testing.assert_allclose(model[bright], spectrum.counts[bright], rtol=0.01)
+    np.testing.assert_allclose(model.sum(), spectrum.counts.sum(), rtol=0.002)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")  # SOXS leaves files open
+def test_fit_recovers_parameters(tmp_path: Path) -> None:
+    """
+    Fitting a simulated spectrum recovers the temperature, abundance and normalisation it was made with.
+    """
+    if not _have_soxs_files(APEC_TEST_FILES + CHANDRA_TEST_FILES):
+        pytest.skip("SOXS's APEC tables and Chandra responses are not downloaded")
+
+    truth = {"kT": 2.0, "abund": 0.3, "norm": 1e-3}
+    simulate_chandra_spectrum(tmp_path / "noisy.pha", noisy=True, **truth)
+    spectrum = XraySpectrum.from_pha(tmp_path / "noisy.pha")
+    result = fit_apec_spectrum(spectrum, redshift=0.05, emin=0.5, emax=7.0, n_steps=1000, n_burn=300, seed=1)
+
+    for name, value in truth.items():
+        lower = result.best_fit[name] + 3 * result.negative_error[name]
+        upper = result.best_fit[name] + 3 * result.positive_error[name]
+        assert lower <= value <= upper, (name, result.best_fit[name], value)
+    assert result.parameter_summary("kT")["unit"] == "keV"

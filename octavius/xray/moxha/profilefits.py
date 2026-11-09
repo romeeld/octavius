@@ -8,9 +8,9 @@ Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, includ
 """
 
 # the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
-from ..extras import XRAY_FITTING_PACKAGES, require_packages
+from ..extras import PROFILE_FITTING_PACKAGES, require_packages
 
-require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray profile fitting")
+require_packages(packages=PROFILE_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray profile fitting")
 
 from scipy.optimize import minimize
 import astropy.io.fits as pyfits

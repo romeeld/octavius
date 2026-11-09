@@ -1,15 +1,17 @@
 """
 
-Fits spectra of mock X-ray observations with threeML and astromodels' XSPEC models.
+Fits the deprojected annular spectra of mock X-ray observations with an absorbed APEC model (TBabs x APEC from SOXS),
+with posteriors sampled by emcee; see octavius/xray/spectral_fitting.py. (moxha originally used threeML and
+astromodels' XSPEC models.)
 
 Part of moxha (https://github.com/Fred-Jennings/moxha), by Fred Jennings, included in Octavius with permission.
 
 """
 
 # the fitting packages are the optional extra octavius[xray-fitting], so check for them before importing
-from ..extras import XRAY_FITTING_PACKAGES, require_packages
+from ..extras import SPECTRAL_FITTING_PACKAGES, require_packages
 
-require_packages(packages=XRAY_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray spectral fitting")
+require_packages(packages=SPECTRAL_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray spectral fitting")
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,27 +29,18 @@ import logging
 import math
 import fnmatch
 from matplotlib.offsetbox import AnchoredText
-from soxs.instrument import RedistributionMatrixFile
-from ..data_files import instrument_file
-from threeML import *
-from threeML.io.package_data import get_path_of_data_file
-from astromodels.xspec.factory import XS_bapec, XS_vapec, XS_bvapec, XS_apec, XS_TBabs
-from astromodels.xspec.xspec_settings import *
-import warnings
+from ..spectral_fitting import XraySpectrum, fit_apec_spectrum, plot_spectral_fit
 
-warnings.simplefilter("ignore")
-silence_warnings()
-set_threeML_style()
-from threeML import silence_progress_bars, activate_progress_bars, toggle_progress_bars
-from threeML.utils.progress_bar import trange
-from threeML import quiet_mode, loud_mode, silence_logs, update_logging_level
+FIT_NH = 0.018  # fixed Galactic absorbing column, 1e22 cm^-2
+FIT_MIN_COUNTS_PER_BIN = 500  # channels are grouped to at least this many counts, as moxha did with threeML
+N_SAVED_SAMPLES = 5000  # posterior samples saved per annulus
 
 """ DO NOT INCLUDE EVTS ANYWHERE HERE> ONLY PHA FILES ARE DEPROJECTED AND NOISE-CORRECTED"""
 
 
 class FitRadialSpectra:
     """
-    Class for fitting the spectra products produced by the PostProcess class. For this we use threeML and fit using XSPEC models from astromodels. Conveniently, this means that we do not actually have to install XSPEC/Heasoft; see https://threeml.readthedocs.io/en/stable/notebooks/installation.html
+    Class for fitting the spectra products produced by the PostProcess class. Each spectrum is fitted with TBabs x APEC from SOXS (the model the mock photons were generated with), by maximum likelihood with the C-statistic, and its posterior sampled with emcee; see octavius/xray/spectral_fitting.py.
     The final data product will be saved under {save_dir}/{run_ID}/instrument_name/ANNULI/spectral_fits/ in the form of .npy file containing a list of dictionary quantities ordered by annulus number, with each dictionary containing the radius, and fit parameter values, for a given annulus.
     ------------------------------------------------
     Constructor Positional Arguments:
@@ -63,7 +56,6 @@ class FitRadialSpectra:
             self._logger.error(f"You set the hubble param to 'from_box' but you did not load the box!")
             sys.exit()
         self.cosmo = FlatLambdaCDM(H0=100 * self.hubble, Om0=0.3, Ob0=0.048, Tcmb0=2.7)
-        xspec_cosmo(H0=100 * self.hubble, q0=0.1, lambda_0=70.0)
         self._run_ID = observation._run_ID
         self._top_save_path = observation._top_save_path
         self.emin = observation.emin
@@ -148,7 +140,7 @@ class FitRadialSpectra:
 
     def fit_spectra(self, fit_emin, fit_emax, n_max=100, n_min=4, overwrite=False):
         """
-        Carry out the spectral fits on the annuli using threeML for the currently active instruments and halos. The annuli files will be found automatically under {save_dir}/{run_ID}/instrument_name/ANNULI/spectral_fits/fits_and_phas/.
+        Carry out the spectral fits on the annuli for the currently active instruments and halos. The annuli files will be found automatically under {save_dir}/{run_ID}/instrument_name/ANNULI/spectral_fits/fits_and_phas/.
         ------------------------------------------------
         Positional Arguments:
                     n_max: The maximum number of annuli to fit. This can save time for large clusters where you may have lots of annuli and you don't want to fit them all. We will include the extremal annuli and so the actual number of fits may be more by 1 or 2. Default = 15
@@ -215,7 +207,6 @@ class FitRadialSpectra:
                 self._logger.info(
                     f"n_max = {n_max} so will include extremal annuli and fit spectra for {len(deprojected_annuli)} annuli: {','.join(sorted(deprojected_annuli))}"
                 )
-                self._logger.info(f"3ML cosmology: {xspec_cosmo()}")
                 self._fit_values = {"r": [], "kT": [], "K": [], "abund": []}
                 self.fit_value_arrays = []
                 self._kpc_radii = np.load(
@@ -226,165 +217,78 @@ class FitRadialSpectra:
                 ):  # tqdm(enumerate(reversed(deprojected_annuli[0:-4])),desc = f"MOXHA - [    INFO] ---{''.ljust(26,' ')}- Fitting Annuli for {self.idx_instr_tag}".ljust(30,' '), total = len(deprojected_annuli)):
                     self._logger.info(f"Proceeding with fit for {self.idx_instr_tag}, annulus {self.annulus} ...")
                     self._pha_file = f"{self.annuli_path}/fits_and_phas/{self.idx_instr_tag}_{str(self.annulus).zfill(2)}_deprojected.pha"
-                    if n == 0:
-                        self._load_model()
                     try:
                         self._load_ogip()
                     except Exception as e:
                         self._logger.warning("something has gone wrong with the fitting...")
                         self._logger.warning(e)
                         continue
-                    self._logger.info(f"Passing spectrum File {self._pha_file} to 3ML...")
-                    self._fit_with_3ML()
+                    self._logger.info(f"Fitting spectrum file {self._pha_file}...")
+                    self._fit_spectrum()
                 np.save(f"{self.annuli_path}/DATA/{self.idx_instr_tag}_fitted_data.npy", self.fit_value_arrays)
 
-    def _fit_with_3ML(self, test_areascal=False):
+    def _fit_spectrum(self):
+        """
+        Fits TBabs x APEC to the current annulus's spectrum (kT, abundance and norm free; redshift and nH fixed) and
+        records the result.
 
+        AI-generated: claude-opus-5-5
+        """
         try:
-            jl = JointLikelihood(self._model, DataList(self.ogip_data))
-            result = jl.fit(n_samples=100000)
+            self._fit_result = fit_apec_spectrum(
+                self._spectrum,
+                redshift=self._redshift,
+                emin=self.fit_emin,
+                emax=self.fit_emax,
+                nH=FIT_NH,
+                min_counts_per_bin=FIT_MIN_COUNTS_PER_BIN,
+            )
             self._logger.info(f"Completed fit for {self.idx_instr_tag}, annulus {self.annulus} ")
-            self._results = jl.results
         except Exception as e:
             self._logger.warning(e)
             return
         self._record_fit_results()
 
-    def _load_model(
-        self,
-    ):
-
-        desired_model = "APEC_tbabs"
-        print(f"Using model {desired_model}")
-        if desired_model == "APEC_tbabs":
-            modapec = APEC()  # XS_bapec() #XS_bapec() #APEC() #XS_bvapec()
-            modTbAbs = XS_TBabs()
-
-            modapec.kT.min_value = 0.01
-            modapec.kT.delta = 0.01
-            modapec.abund.fix = False
-            modapec.abund.max_value = 10
-            modapec.abund.min_value = 0.01
-            modapec.abund.delta = 0.01
-
-            modapec.redshift.value = self._redshift  # Source redshift
-            modapec.redshift.fix = True
-            modTbAbs.nh.value = 0.018  # A value of 1 corresponds to 1e22 cm-2
-            modTbAbs.nh.fix = True  # NH is fixed
-
-            absorbed_apec = modapec * modTbAbs
-            absorbed_apec.display()
-            pts = PointSource("mysource", 30, 45, spectral_shape=absorbed_apec)
-            self._model = Model(pts)
-
-        if desired_model == "vapec_tbabs":
-            modapec = XS_vapec()  # APEC() #XS_bapec() #XS_bapec() #APEC() #
-            modTbAbs = XS_TBabs()
-            modapec.kt.value = 0.3
-            modapec.kt.min_value = 0.01
-            modapec.kt.delta = 0.01
-
-            for elem in ["He", "C", "N", "O", "Ne", "Mg", "Al", "Si", "S", "Ar", "Ca", "Fe", "Ni"]:
-                modapec[elem.lower()].fix = False
-                modapec[elem.lower()].value = 1
-                modapec[elem.lower()].max_value = 3
-                modapec[elem.lower()].min_value = 0.01
-                modapec[elem.lower()].delta = 0.01
-            modapec.redshift.value = round(self._redshift, 2)  # Source redshift
-            modapec.redshift.fix = True
-            modTbAbs.nh.value = 0.018  # A value of 1 corresponds to 1e22 cm-2
-            modTbAbs.nh.fix = True  # NH is fixed
-
-            absorbed_apec = modapec * modTbAbs
-            absorbed_apec.display()
-            pts = PointSource("mysource", 30, 45, spectral_shape=absorbed_apec)
-            self._model = Model(pts)
-
-        if desired_model == "apec_apec_tbabs":
-            modapec1 = XS_apec()  # APEC() #XS_bapec() #XS_bapec() #APEC() #
-            modapec2 = XS_apec()
-            modTbAbs = XS_TBabs()
-
-            modapec1.kt.value = 0.3
-            modapec1.kt.min_value = 0.01
-            modapec1.kt.delta = 0.01
-            modapec2.kt.value = 0.3
-            modapec2.kt.min_value = 0.01
-            modapec2.kt.delta = 0.01
-
-            modapec1.redshift.value = round(self._redshift, 2)  # Source redshift
-            modapec2.redshift.value = round(self._redshift, 2)  # Source redshift
-            modapec1.redshift.fix = True
-            modapec2.redshift.fix = True
-
-            modTbAbs.nh.value = 0.018  # A value of 1 corresponds to 1e22 cm-2
-            modTbAbs.nh.fix = True  # NH is fixed
-
-            absorbed_apec = (modapec1 + modapec2) * modTbAbs
-            absorbed_apec.display()
-            pts = PointSource("mysource", 30, 45, spectral_shape=absorbed_apec)
-            self._model = Model(pts)
-
     def _load_ogip(
         self,
     ):
-        with fits.open(self._pha_file) as hdul:
-            rmf = hdul["SPECTRUM"].header.get("RESPFILE", None)
-            arf = hdul["SPECTRUM"].header.get("ANCRFILE", None)
+        """
+        Reads the current annulus's spectrum, with the RMF and ARF named in its header.
 
-        # the response files named in the spectrum's header, downloaded by SOXS if it does not have them yet
-        rmf = instrument_file(rmf)
-        arf = instrument_file(arf)
-
-        if not os.path.exists(rmf):
-            raise RuntimeError(f"rmf file {rmf} does not exist!")
-        if not os.path.exists(arf):
-            raise RuntimeError(f"arf file {arf} does not exist!")
-
-        self._logger.info(f" Fitting using rmf: {rmf}")
-        self._logger.info(f" Fitting using arf: {arf}")
-
-        try:
-            self.ogip_data = OGIPLike("ogip", observation=self._pha_file, response=rmf, arf_file=arf)
-        except Exception as e:
-            self._logger.warning(e)
-
+        AI-generated: claude-opus-5-5
+        """
+        self._spectrum = XraySpectrum.from_pha(self._pha_file)
+        self._logger.info(f" Fitting using rmf: {self._spectrum.rmf_path}")
+        self._logger.info(f" Fitting using arf: {self._spectrum.arf_path}")
         self._logger.info(f"Will fit between {self.fit_emin}-{self.fit_emax}")
-        self.ogip_data.remove_rebinning()
-        self.ogip_data.set_active_measurements(f"{self.fit_emin}-{self.fit_emax}")
-        self.ogip_data.rebin_on_source(500)
 
     def _record_fit_results(
         self,
     ):
-        annulus_params = {}
-        results_dict = self._results.get_data_frame(error_type="equal tail", cl=0.68).to_dict(orient="index")
-        radii = [x for x in self._kpc_radii if int(x["annulus_num"]) == int(self.annulus)][0]["radii"]
-        annulus_params["kT"] = results_dict["mysource.spectrum.main.composite.kT_1"]
-        annulus_params["norm"] = results_dict["mysource.spectrum.main.composite.K_1"]
-        annulus_params["radii"] = radii
-        self.fit_value_arrays.append(annulus_params)
-        count_fig1 = self.ogip_data.display_model(step=False)
-        plt.xlim(0.8 * self.fit_emin, 1.2 * self.fit_emax)
-        plt.xscale("linear")
+        """
+        Stores the annulus's fitted kT, norm and abundance (value with equal-tailed 68% errors, as profilefits reads
+        them), its radii and a thinned set of posterior samples, and saves a plot of the fit.
 
-        at = AnchoredText(
-            f"log10 kT = {round(np.log10(self._model.mysource.spectrum.main.composite.kT_1.value), 3)}, log10 K = {round(np.log10(self._model.mysource.spectrum.main.composite.K_1.value), 3)}",
-            prop=dict(size=8),
-            frameon=True,
-            loc="lower right",
-        )
-        at.patch.set_boxstyle("round,pad=0.,rounding_size=0")
-        ax = plt.gca()
-        ax.add_artist(at)
-        self._logger.info(
-            f"Saving Fitting Plot under {self.annuli_path}/spectral_fits/{self.idx_instr_tag}_{str(self.annulus).zfill(2)}_deprojected_fit_new.png"
-        )
-        plt.savefig(
-            f"{self.annuli_path}/spectral_fits/{self.idx_instr_tag}_{str(self.annulus).zfill(2)}_deprojected_fit_new.png"
-        )
-        plt.clf()
-        plt.close()
-        self._logger.info(
-            f"Spectral fit saved under {self.annuli_path}/spectral_fits/{self.idx_instr_tag}_{str(self.annulus).zfill(2)}_deprojected_fit"
-        )
+        AI-generated: claude-opus-5-5
+        """
+        result = self._fit_result
+        radii = [x for x in self._kpc_radii if int(x["annulus_num"]) == int(self.annulus)][0]["radii"]
+        thin = max(1, len(result.samples) // N_SAVED_SAMPLES)
+        annulus_params = {
+            "kT": result.parameter_summary("kT"),
+            "norm": result.parameter_summary("norm"),
+            "abund": result.parameter_summary("abund"),
+            "radii": radii,
+            "posterior_samples": {
+                "kT": result.samples[::thin, 0],
+                "abund": result.samples[::thin, 1],
+                "norm": result.samples[::thin, 2],
+            },
+            "cstat": result.cstat,
+            "n_bins": result.n_bins,
+        }
+        self.fit_value_arrays.append(annulus_params)
+
+        plot_path = f"{self.annuli_path}/spectral_fits/{self.idx_instr_tag}_{str(self.annulus).zfill(2)}_deprojected_fit_new.png"
+        self._logger.info(f"Saving Fitting Plot under {plot_path}")
+        plot_spectral_fit(self._spectrum, result, emin=self.fit_emin, emax=self.fit_emax, output_path=plot_path)
