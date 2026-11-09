@@ -222,3 +222,26 @@ def test_fit_recovers_parameters(tmp_path: Path) -> None:
         upper = result.best_fit[name] + 3 * result.positive_error[name]
         assert lower <= value <= upper, (name, result.best_fit[name], value)
     assert result.parameter_summary("kT")["unit"] == "keV"
+
+
+def test_hot_pixel_cleaning() -> None:
+    """
+    The hot-pixel boxes cover exactly their image pixels, so excluding them removes only the events in those pixels;
+    the masking correction is n / (n - n_hot), and 1 for an annulus with no pixels left.
+    """
+    pytest.importorskip("octavius.xray.moxha", exc_type=ImportError)
+    from types import SimpleNamespace
+
+    from soxs.events.utils import _region_filter
+
+    from octavius.xray.moxha.postprocess import _hot_pixel_region, _masking_correction
+
+    # the event pixel grid starts at 0.5, so image pixel i (reblock 1) holds 0.5 + i <= x < 1.5 + i
+    x = np.array([10.6, 11.4, 11.6, 20.9, 50.0])
+    y = np.array([10.6, 11.4, 10.9, 20.9, 50.0])
+    events = SimpleNamespace(data={"X": x, "Y": y, "ENERGY": np.ones(len(x))})
+    kept = _region_filter(events, _hot_pixel_region([(10, 10), (20, 20)], reblock=1), exclude=True)
+    np.testing.assert_array_equal(kept, [False, False, True, False, True])
+
+    assert _masking_correction(10, 2) == pytest.approx(1.25)
+    assert _masking_correction(0, 0) == 1.0
