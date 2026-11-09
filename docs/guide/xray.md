@@ -11,7 +11,7 @@ pip install "octavius[xray]"           # mock observations: yt, pyXSIM, SOXS and
 pip install "octavius[xray-fitting]"   # also moxha's profile and spectral fits and tessellated maps
 ```
 
-The fitting extra adds threeML, astromodels, emcee, lmfit and others. Using a module whose packages are missing gives an error saying which extra to install.
+The fitting extra adds emcee, lmfit, vorbin and others (no XSPEC or HEASoft installation is needed). Using a module whose packages are missing gives an error saying which extra to install.
 
 ## Data files
 
@@ -65,3 +65,21 @@ moxha's fitting modules are not imported with the rest, as they need the `xray-f
 ```python
 from octavius.xray.moxha import profilefits, spectralfits, tessmaps
 ```
+
+### Spectral fits
+
+The spectra of the deprojected annuli (`spectralfits.FitRadialSpectra`) and of the tessellated map's tiles (`tessmaps`) are fitted with an absorbed APEC model, TBabs × APEC, built from SOXS: the same AtomDB tables and absorption model that pyXSIM and SOXS use to generate and observe the photons, so the fitted model is the one the mock spectra were made from. The temperature, abundance and normalisation (XSPEC convention) are free, with the redshift and absorbing column fixed. The fit maximises the Cash likelihood (C-statistic, which also suits the non-integer counts of deprojected spectra), and the posterior is sampled with emcee, with flat priors in log kT, abundance and log normalisation. Errors are equal-tailed 68% intervals about the best fit, and posterior samples are saved with each annulus's results.
+
+The fit can also be used directly on any PHA spectrum with its ARF and RMF:
+
+```python
+from octavius.xray.spectral_fitting import XraySpectrum, fit_apec_spectrum, plot_spectral_fit
+
+spectrum = XraySpectrum.from_pha("spectrum.pha")
+result = fit_apec_spectrum(spectrum, redshift=0.05, emin=0.5, emax=7.0)
+print(result.best_fit, result.negative_error, result.positive_error)
+plot_spectral_fit(spectrum, result, emin=0.5, emax=7.0, output_path="fit.png")
+```
+
+The model is folded through the instrument response once per instrument and redshift (about 10 s), after which each fit, including its posterior, takes a second or two.
+
