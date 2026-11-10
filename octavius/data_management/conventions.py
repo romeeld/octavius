@@ -39,7 +39,19 @@ VALID_VIEW_AXES = frozenset({"X", "Y", "Z"})
 BARYONIC_PTYPES = frozenset({"gas", "star", "bh"})
 VALID_GAS_CRITERIA = frozenset({"COLD", "STARFORMING", "COLD_OR_STARFORMING", "DENSE_ONLY"})
 ALWAYS_POSITIVE = frozenset(
-    {"b", "halo_b", "velocity_factor", "n_io_chunks", "interpolation_bins", "aperture_size", "virial_factors"}
+    {
+        "b",
+        "halo_b",
+        "velocity_factor",
+        "n_io_chunks",
+        "interpolation_bins",
+        "aperture_size",
+        "virial_factors",
+        "xray_temperature_min",
+        "xray_density_max",
+        "xray_solar_metallicity",
+        "xray_tsl_temperature_min",
+    }
 )
 
 VALID_LX_FRAMES = frozenset({"REST", "OBSERVED"})
@@ -154,8 +166,12 @@ class OctaviusConfig:
     split_age: float = 0.01
     _keep_spectra: bool = False  # used for standalone photometry, not in YAML file
 
-    lx_bands: list[list[float]] = field(default_factory=lambda: [[0.5, 2.0]])  # keV, for X-ray spectral fits
-    lx_frame: str = "REST"  # REST: emitted between the energies (K-corrected); OBSERVED: observed between them
+    lx_bands: list[list[float]] = field(default_factory=lambda: [[0.5, 2.0]])  # keV: catalogue and spectral-fit bands
+    lx_frame: str = "REST"  # spectral fits; REST: emitted between the energies (K-corrected); OBSERVED: observed
+    xray_temperature_min: float = 2.0e5  # K; X-ray emitting gas is hotter than this...
+    xray_density_max: float = 0.01  # ...less dense than this (in proton masses per cm^3), not star-forming nor a wind
+    xray_solar_metallicity: float = 0.01295  # Z_sun converting metal mass fractions for the APEC table (as yt, pyXSIM)
+    xray_tsl_temperature_min: float = 5.8e6  # K (0.5 keV); only hotter gas enters the spectroscopic-like temperature
 
     terminal_output_level: str = "INFO"
     keep_logs: bool = False
@@ -242,6 +258,15 @@ class OctaviusConfig:
 
             names, lambda_effs = read_filter_names(self.photometry_table_path)
             object.__setattr__(self, "bands", resolve_band_names(self.bands, names, lambda_effs))
+
+    @property
+    def lx_band_names(self) -> list[str]:
+        """
+        Names of the X-ray luminosity bands, e.g. "0.5_2" for [0.5, 2.0] keV (giving the catalogue column Lx_0.5_2keV).
+
+        AI-generated: claude-opus-5-5
+        """
+        return [f"{emin:g}_{emax:g}" for emin, emax in self.lx_bands]
 
     @classmethod
     def from_yaml(cls, config_path: Path | str, **overrides: Any) -> OctaviusConfig:

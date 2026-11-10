@@ -5,6 +5,7 @@ Particle type-specific aggregate properties. For example:
 - Hydrogen mass fractions (gas)
 - Star formation histories (stars)
 - Eddington fractions (black holes)
+- X-ray luminosities and temperatures of the hot gas (see xray_emission.py)
 
 In practice this file exists more for modularity purposes; it is by far the lightest stage
 of the pipeline at present.
@@ -27,6 +28,7 @@ from ..aggregate_properties.aggregate_helpers import (
     max_idx_per_group,
 )
 from ..log import get_logger
+from .xray_emission import compute_xray_properties
 
 logger = get_logger()
 
@@ -86,6 +88,28 @@ def run_ptype_specific_properties(simulation_data: SimulationData, config: Octav
                     proton_mass_cgs=constants.PROTON_MASS_G,
                 )
                 group_store.write_batch(results=cgm_results)
+
+                # X-ray emission of the hot gas (haloes only: galaxies' gas is their cold and star-forming gas)
+                xray_results = compute_xray_properties(
+                    masses=gas["mass"],
+                    densities=gas["rho"],
+                    temperatures=gas["temperature"],
+                    metallicities=gas["metallicity"],
+                    helium_fractions=gas["helium_fraction"],
+                    sfrs=gas["sfr"],
+                    wind_delay_times=gas["wind_delay_time"] if "wind_delay_time" in gas else None,  # absent: no winds
+                    offsets=gas_offsets,
+                    idx_sorted=gas_idx,
+                    n_groups=n_groups,
+                    bands=config.lx_bands,
+                    band_names=config.lx_band_names,
+                    temperature_min=config.xray_temperature_min,
+                    density_max=config.xray_density_max,
+                    solar_metallicity=config.xray_solar_metallicity,
+                    tsl_temperature_min=config.xray_tsl_temperature_min,
+                    constants=constants,
+                )
+                group_store.write_batch(results=xray_results)
 
         # stars
         if "star" in particles:

@@ -73,9 +73,13 @@ photometry:
   split_age:                  0.01  # Gyr
 
 
-xray:  # mock X-ray observations (octavius/xray): luminosities from the spectral fits of moxha's annuli
-  lx_bands:   [[0.5, 2.0]]  # [emin, emax] in keV, as many as wanted; plain integrals of the model spectrum
-  lx_frame:   REST          # REST: emitted between the energies in the source's frame (K-corrected); OBSERVED
+xray:  # X-ray luminosities: of each halo's and galaxy's hot gas (rest frame), and of moxha's fitted annuli
+  lx_bands:   [[0.5, 2.0]]  # [emin, emax] in keV, as many as wanted; plain integrals of the emission spectrum
+  lx_frame:   REST          # for moxha's spectral fits: REST (emitted between the energies, K-corrected) or OBSERVED
+  xray_temperature_min:     2.0e+5    # K; gas counts as X-ray emitting if hotter than this,
+  xray_density_max:         0.01      # less dense than this (proton masses per cm^3), not star-forming nor a wind
+  xray_solar_metallicity:   0.01295   # Z_sun for the APEC emissivities, as yt and pyXSIM use
+  xray_tsl_temperature_min: 5.8e+6    # K (0.5 keV); hot gas above this enters the spectroscopic-like temperature
 
 
 parallelism:
