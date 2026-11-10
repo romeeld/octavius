@@ -93,3 +93,5 @@ xray:
 
 The bands are plain integrals of the model spectrum, with no instrument response. With `REST`, a band is the luminosity emitted between `emin` and `emax` in the source's frame (so K-corrected); with `OBSERVED`, it is the luminosity implied by the flux observed between `emin` and `emax`. The luminosities are stored under `"Lx"` in the fitted data, keyed by band (e.g. `"Lx_0.5_2keV"`), in erg/s. For deprojected annuli they are the luminosities of the spherical shells.
 
+Each annulus's electron density is stored under `"ne"` (cm$^{-3}$), from its APEC normalisation as $n_e = \sqrt{10^{14}\, 4\pi\, \mathrm{norm}\, [D_A(1+z)]^2 / (0.82\, V)}$, where $n_H = 0.82\, n_e$ and $V = \frac{4\pi}{3}(r_{\rm out}^2 - r_{\rm in}^2)^{3/2}$ is the volume of the spherical shell within the annulus (the volume a deprojected annulus's emission comes from), with errors from the posterior samples of the normalisation.
+
