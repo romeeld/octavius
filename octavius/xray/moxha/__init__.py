@@ -3,9 +3,10 @@
 moxha: mock X-ray observations of haloes in hydrodynamical simulations, by Fred Jennings
 (https://github.com/Fred-Jennings/moxha), included in Octavius with permission.
 
-The mock observations need the optional extra octavius[xray] (yt, pyXSIM, SOXS). The fitting modules (profilefits,
-spectralfits and tessmaps) need octavius[xray-fitting] as well, so they are not imported here: import them explicitly,
-e.g. ``from octavius.xray.moxha import profilefits``.
+The mock observations need the optional extra octavius[xray] (yt, pyXSIM, SOXS). The fitting modules (spectralfits
+and tessmaps) need octavius[xray-fitting] as well, so they are not imported here: import them explicitly, e.g.
+``from octavius.xray.moxha import spectralfits``. moxha's profile fitting and scaling-relation analysis (profilefits)
+is not included; it remains in moxha's repository.
 
 """
 

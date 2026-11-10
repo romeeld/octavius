@@ -53,16 +53,10 @@ xray = [  # mock X-ray observations (octavius/xray, including moxha)
     "tqdm>=4.0",
     "matplotlib>=3.9",
 ]
-xray-fitting = [  # moxha's profile and spectral fits and tessellated maps, on top of the xray extra
+xray-fitting = [  # moxha's spectral fits and tessellated maps, on top of the xray extra
     "octavius[xray]",
     "emcee",
-    "corner",
-    "lmfit",
-    "bces",
-    "nmmn",
-    "pandas",
     "vorbin",
-    "ipython",
 ]
 test = [
     "pytest>=8.0", 
