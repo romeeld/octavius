@@ -85,7 +85,7 @@ Documentation = "https://octavius.readthedocs.io/"
 [tool.setuptools.packages.find]
 include = ["octavius*"]
 [tool.setuptools.package-data]
-octavius = ["*.yaml"]
+octavius = ["*.yaml", "data/*.h5"]
 [tool.setuptools.dynamic]
 version = {attr = "octavius.version.__version__"}
 

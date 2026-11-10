@@ -7,6 +7,7 @@ For the heavier compute functions which have more intricate logic, it is not pos
 """
 
 import numpy as np
+import pytest
 
 from octavius.aggregate_properties.aggregate_computations import (
     compute_kinematics,
@@ -30,6 +31,7 @@ from octavius.aggregate_properties.aggregate_helpers import (
 
 from octavius.aggregate_properties.properties_core import _combine_centre_of_mass
 from octavius.aggregate_properties.properties_local_environment import distribute_halo_hydrogen
+from octavius.aggregate_properties.xray_emission import apec_band_emissivities, compute_xray_properties
 
 
 from octavius.data_management import (
@@ -458,3 +460,86 @@ def test_halo_gas_redistribution() -> None:
     np.testing.assert_allclose(
         assigned_H2[0], np.sum(gas_mass_H2), err_msg="test_halo_gas_redistribution failed: not all H2 went to galaxy."
     )
+
+
+def test_xray_emissivities_match_yt() -> None:
+    """
+    The band-integrated APEC emissivities (and their interpolation in temperature) are those yt computes from the same
+    table, which pyXSIM uses for the mock photons.
+    """
+    yt_xray = pytest.importorskip("yt.fields.xray_emission_fields")
+    from importlib.resources import files
+
+    data_dir = str(files("octavius").joinpath("data"))
+    integrator = yt_xray.XrayEmissivityIntegrator("apec", data_dir=data_dir, redshift=0.0)
+    bands = ((0.5, 2.0), (0.1, 2.4), (2.0, 10.0))
+    log_T, log_primordial, log_metals = apec_band_emissivities(bands)
+    test_log_T = np.array([5.5, 6.3, 7.0, 7.77, 8.5])
+
+    for band, (emin, emax) in enumerate(bands):
+        for data_type, ours in (("primordial", log_primordial[band]), ("metals", log_metals[band])):
+            yt_interpolator = integrator.get_interpolator(data_type, emin, emax)
+            yt_values = yt_interpolator({"log_T": test_log_T, "log_nH": np.zeros_like(test_log_T)})
+            np.testing.assert_allclose(np.interp(test_log_T, log_T, ours), yt_values, rtol=1e-10)
+
+
+def test_xray_properties() -> None:
+    """
+    Only hot, diffuse, non-star-forming, non-wind gas emits; a particle's luminosity is n_e n_H V times the APEC
+    emissivity; and isothermal gas has that temperature as both its X-ray-weighted and spectroscopic-like temperature.
+    """
+    constants = OctaviusConstants()
+    proton_mass = constants.PROTON_MASS_G
+    n = 6
+    masses = np.full(n, 1e8)  # Msun
+    densities = np.full(n, 1e-3 * proton_mass)  # g/cm^3
+    temperatures = np.full(n, 3e7)  # K
+    metallicities = np.full(n, 0.01295)  # solar for the APEC table, as configured below
+    helium_fractions = np.full(n, 0.25)
+    sfrs = np.zeros(n)
+    winds = np.zeros(n)
+    # particle 1 is cool, 2 dense, 3 star-forming and 4 a wind; 0 and 5 emit
+    temperatures[1], densities[2], sfrs[3], winds[4] = 1e4, 0.1 * proton_mass, 1.0, 0.01
+
+    kwargs = dict(
+        masses=masses,
+        densities=densities,
+        temperatures=temperatures,
+        metallicities=metallicities,
+        helium_fractions=helium_fractions,
+        sfrs=sfrs,
+        offsets=np.array([0, 3, 6]),  # groups [0, 1, 2] and [3, 4, 5]
+        idx_sorted=np.arange(n),
+        n_groups=2,
+        bands=[[0.5, 2.0]],
+        band_names=["0.5_2"],
+        temperature_min=2e5,
+        density_max=0.01,
+        solar_metallicity=0.01295,
+        tsl_temperature_min=5.8e6,
+        constants=constants,
+    )
+    results = compute_xray_properties(wind_delay_times=winds, **kwargs)
+
+    log_T, log_primordial, log_metals = apec_band_emissivities(((0.5, 2.0),))
+    emissivity = 10 ** np.interp(np.log10(3e7), log_T, log_primordial[0]) + 10 ** np.interp(
+        np.log10(3e7), log_T, log_metals[0]
+    )
+    X, Y = 1 - 0.01295 - 0.25, 0.25
+    n_H, n_e = X * 1e-3, (X + Y / 2) * 1e-3
+    volume = 1e8 * constants.M_SUN_G / (1e-3 * proton_mass)
+    one_particle = n_e * n_H * volume * emissivity
+
+    np.testing.assert_allclose(results["Lx_0.5_2keV"], [one_particle, one_particle], rtol=1e-12)
+    np.testing.assert_allclose(results["temperature_xray_weighted"], [3e7, 3e7], rtol=1e-12)
+    np.testing.assert_allclose(results["temperature_spectroscopic_like"], [3e7, 3e7], rtol=1e-12)
+
+    # without wind information the wind particle counts as hot gas
+    no_winds = compute_xray_properties(wind_delay_times=None, **kwargs)
+    np.testing.assert_allclose(no_winds["Lx_0.5_2keV"], [one_particle, 2 * one_particle], rtol=1e-12)
+
+    # gas between xray_temperature_min and tsl_temperature_min emits, but stays out of the spectroscopic-like temperature
+    warm = dict(kwargs, temperatures=np.where(np.arange(n) == 5, 1e6, temperatures))
+    with_warm_gas = compute_xray_properties(wind_delay_times=winds, **warm)
+    assert with_warm_gas["Lx_0.5_2keV"][1] > 0.0
+    np.testing.assert_allclose(with_warm_gas["temperature_spectroscopic_like"], [3e7, np.nan], rtol=1e-12)

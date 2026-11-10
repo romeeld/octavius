@@ -72,12 +72,19 @@ stages:
       gas: [metallicity, sfr, rho, mass_HI, mass_H2, helium_fraction, temperature]
       star: [metallicity, age]
       bh: [bhmass, bhmdot]
+    optional_particle_columns:
+      gas: [wind_delay_time]  # excludes wind particles from the X-ray emitting gas where the snapshot has winds
     outputs:
       - columns: ["mass_HI", "mass_H2", "sfr", "metallicity_gas_mass_weighted", "metallicity_gas_sfr_weighted", "temperature_gas_mass_weighted", "mass_gas_cold", "mass_gas_hot"]
       - columns: ["metallicity_gas_mass_weighted_cgm", "metallicity_gas_temperature_weighted_cgm", "temperature_gas_mass_weighted_cgm", "temperature_gas_metal_weighted_cgm", "mass_cgm"]
         applies_to: [haloes]
       - columns: ["metallicity_star_mass_weighted", "age_star_mass_weighted", "age_star_metal_weighted"]
       - columns: ["smbh_mass", "smbh_mdot", "smbh_fedd"]
+      - columns: ["Lx_{band}keV"]
+        over: {band: from_config:lx_band_names}
+        applies_to: [haloes]  # galaxies' gas is their cold and star-forming gas
+      - columns: ["temperature_xray_weighted", "temperature_spectroscopic_like"]
+        applies_to: [haloes]
 
   properties_local_environment:
     label: environment
@@ -402,6 +409,25 @@ output_columns:
     unit:        "Msun"
     a_exp:       0
     description: "Mass of the most massive black hole."
+
+  "Lx_{band}keV":
+    over:        {band: from_config:lx_band_names}
+    dtype:       float64
+    unit:        "erg/s"
+    a_exp:       0
+    description: "Rest-frame X-ray luminosity of the hot gas in the band (APEC emissivities)."
+
+  temperature_xray_weighted:
+    dtype:       float64
+    unit:        "K"
+    a_exp:       0
+    description: "Hot-gas temperature weighted by X-ray luminosity in the first lx_bands band."
+
+  temperature_spectroscopic_like:
+    dtype:       float64
+    unit:        "K"
+    a_exp:       0
+    description: "Spectroscopic-like temperature, sum(m rho T^1/4) / sum(m rho T^-3/4), of the hot gas above xray_tsl_temperature_min (Mazzotta et al. 2004)."
 
   # end only black holes
 
