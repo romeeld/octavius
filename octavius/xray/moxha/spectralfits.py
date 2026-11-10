@@ -29,7 +29,7 @@ import logging
 import math
 import fnmatch
 from matplotlib.offsetbox import AnchoredText
-from ..spectral_fitting import XraySpectrum, fit_apec_spectrum, plot_spectral_fit
+from ..spectral_fitting import XraySpectrum, band_luminosities, fit_apec_spectrum, plot_spectral_fit
 
 FIT_NH = 0.018  # fixed Galactic absorbing column, 1e22 cm^-2
 FIT_MIN_COUNTS_PER_BIN = 500  # channels are grouped to at least this many counts, as moxha did with threeML
@@ -72,6 +72,11 @@ class FitRadialSpectra:
         self._logger.addHandler(c_handler)
         self._logger.info("Spectral Fitting Initialised")
         self.active_halos = observation.active_halos
+        # X-ray luminosity bands ([emin, emax] in keV) and their frame ("REST" or "OBSERVED"), set from the Octavius
+        # config by OctaviusAnalyser.xray_observation()
+        self.lx_bands = getattr(observation, "lx_bands", [[0.5, 2.0]])
+        self.lx_frame = getattr(observation, "lx_frame", "REST")
+        self._luminosity_distance_cm = self.cosmo.luminosity_distance(self._redshift).to("cm").value
         self.active_instruments = observation.active_instruments
         self._instrument_defaults = observation._instrument_defaults
 
@@ -286,6 +291,11 @@ class FitRadialSpectra:
             },
             "cstat": result.cstat,
             "n_bins": result.n_bins,
+            # unabsorbed luminosities (erg/s) of the fitted model in each band, keyed e.g. "Lx_0.5_2keV"
+            "Lx": band_luminosities(
+                result, bands=self.lx_bands, frame=self.lx_frame, luminosity_distance_cm=self._luminosity_distance_cm
+            ),
+            "Lx_frame": self.lx_frame,
         }
         self.fit_value_arrays.append(annulus_params)
 
