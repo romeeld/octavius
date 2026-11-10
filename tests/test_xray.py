@@ -311,3 +311,24 @@ def test_annulus_electron_density() -> None:
 
     assert fits._electron_density(norm, r_in, r_out) == pytest.approx(expected, rel=1e-10)
     assert 1e-4 < expected < 1e-2  # a sensible intracluster density
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")  # SOXS leaves files open
+def test_fit_with_fixed_abundance(tmp_path: Path) -> None:
+    """
+    With the abundance fixed, the fit keeps it at that value (with no error) and still recovers the temperature.
+    """
+    if not _have_soxs_files(APEC_TEST_FILES + CHANDRA_TEST_FILES):
+        pytest.skip("SOXS's APEC tables and Chandra responses are not downloaded")
+
+    simulate_chandra_spectrum(tmp_path / "noisy.pha", kT=2.0, abund=0.3, norm=1e-3, noisy=True)
+    spectrum = XraySpectrum.from_pha(tmp_path / "noisy.pha")
+    result = fit_apec_spectrum(
+        spectrum, redshift=0.05, emin=0.5, emax=7.0, abund=0.3, min_counts_per_bin=25, n_steps=1000, n_burn=300, seed=1
+    )
+
+    assert result.fixed["abund"] == 0.3
+    summary = result.parameter_summary("abund")
+    assert (summary["value"], summary["negative_error"], summary["positive_error"]) == (0.3, 0.0, 0.0)
+    kT = result.parameter_summary("kT")
+    assert kT["value"] + 3 * kT["negative_error"] <= 2.0 <= kT["value"] + 3 * kT["positive_error"]

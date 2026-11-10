@@ -145,15 +145,28 @@ class FitRadialSpectra:
         else:
             self.active_halos = halos
 
-    def fit_spectra(self, fit_emin, fit_emax, n_max=100, n_min=4, overwrite=False):
+    def fit_spectra(
+        self,
+        fit_emin,
+        fit_emax,
+        n_max=100,
+        n_min=4,
+        overwrite=False,
+        abund=None,
+        min_counts_per_bin=FIT_MIN_COUNTS_PER_BIN,
+    ):
         """
         Carry out the spectral fits on the annuli for the currently active instruments and halos. The annuli files will be found automatically under {save_dir}/{run_ID}/instrument_name/ANNULI/spectral_fits/fits_and_phas/.
         ------------------------------------------------
         Positional Arguments:
                     n_max: The maximum number of annuli to fit. This can save time for large clusters where you may have lots of annuli and you don't want to fit them all. We will include the extremal annuli and so the actual number of fits may be more by 1 or 2. Default = 15
                     n_min: Don't fit for an observation if there are fewer than n_min deprojected annuli availble. Default = 4
+                    abund: Fix the abundance (solar, Anders & Grevesse) at this value instead of fitting it, e.g. 0.3 when the spectra cannot constrain it. Default = None (fitted)
+                    min_counts_per_bin: Group consecutive channels to at least this many counts before fitting; None fits every channel. Fewer counts per bin keep more of the line structure that constrains the abundance. Default = 500
         Returns:
         """
+        self._fixed_abund = abund
+        self._min_counts_per_bin = min_counts_per_bin
         for i, halo in enumerate(self.active_halos):
             print(halo)
             halo_idx = halo["index"]
@@ -236,8 +249,8 @@ class FitRadialSpectra:
 
     def _fit_spectrum(self):
         """
-        Fits TBabs x APEC to the current annulus's spectrum (kT, abundance and norm free; redshift and nH fixed) and
-        records the result.
+        Fits TBabs x APEC to the current annulus's spectrum (kT, norm and, unless fixed, the abundance free; redshift and
+        nH fixed) and records the result.
 
         AI-generated: claude-opus-5-5
         """
@@ -248,7 +261,8 @@ class FitRadialSpectra:
                 emin=self.fit_emin,
                 emax=self.fit_emax,
                 nH=FIT_NH,
-                min_counts_per_bin=FIT_MIN_COUNTS_PER_BIN,
+                abund=self._fixed_abund,
+                min_counts_per_bin=self._min_counts_per_bin,
             )
             self._logger.info(f"Completed fit for {self.idx_instr_tag}, annulus {self.annulus} ")
         except Exception as e:
@@ -326,6 +340,8 @@ class FitRadialSpectra:
                 "abund": result.samples[::thin, 1],
                 "norm": result.samples[::thin, 2],
             },
+            "abund_fixed": "abund" in result.fixed,  # fit_spectra(abund=...) fixed it
+            "min_counts_per_bin": self._min_counts_per_bin,
             "cstat": result.cstat,
             "n_bins": result.n_bins,
             # unabsorbed luminosities (erg/s) of the fitted model in each band, keyed e.g. "Lx_0.5_2keV"
