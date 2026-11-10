@@ -91,6 +91,14 @@ Please note disabling a particle entirely may have unintended consequences: for 
 
 `MU`: the mean molecular weight, used for the virial temperature scaling relation (default: `0.6`).
 
+## X-ray Parameters
+
+These set the X-ray luminosities recorded with moxha's spectral fits (see [Mock X-ray Observations](xray.md)).
+
+`lx_bands`: the energy bands, as a list of `[emin, emax]` in keV (default: `[[0.5, 2.0]]`).
+
+`lx_frame`: `REST` for luminosities emitted within the bands in the source's frame (K-corrected), or `OBSERVED` for luminosities within the bands as observed (default: `REST`).
+
 ## FOF6D Parameters
 
 `b`: the scaling factor used to determine the position-space linking length, which is defined as $b \times \lambda$, where $\lambda$ is the mean interparticle separation (default: `0.02`).
