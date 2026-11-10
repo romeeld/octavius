@@ -8,9 +8,12 @@ This section contains example scripts of running Octavius and working with its c
 
 [Standalone Analysis](standalone_analysis.md): post-catalogue analysis of specific haloes and galaxies.
 
+[Mock X-ray Observations](xray_observations.md): a mock X-ray observation of a cluster, deprojected and fitted into radial profiles.
+
 ```{toctree}
 :hidden:
 analysing_snapshots
 loading_catalogues
 standalone_analysis
+xray_observations
 ```
