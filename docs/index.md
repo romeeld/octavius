@@ -51,7 +51,7 @@ Features include:
 - Comprehensive membership mapping, including hierarchies
 - Standalone analysis tools (on-the-fly pipeline stages)
 - Galaxy and halo lightcones built from catalogues, with optional redshift-space distortions
-- Mock X-ray observations of haloes with moxha (pyXSIM and SOXS), including profile and spectral fitting
+- Mock X-ray observations of haloes with moxha (pyXSIM and SOXS), including spectral fitting
 - Comprehensive unit and regression tests
 
 To get started, please refer to the [installation](getting_started/installation.md) guide; for a brief overview of the package, please see the [five-minute guide](getting_started/five_minute_guide.md).
