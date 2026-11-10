@@ -284,3 +284,32 @@ def test_band_luminosities() -> None:
             assert luminosity["value"] == pytest.approx(expected, rel=1e-3)
             assert luminosity["negative_error"] == pytest.approx(0.0, abs=1e-6 * expected)
             assert luminosity["positive_error"] == pytest.approx(0.0, abs=1e-6 * expected)
+
+
+def test_annulus_electron_density() -> None:
+    """
+    An annulus's electron density follows from its APEC norm: norm = 1e-14 / (4 pi [D_A (1 + z)]^2) n_e n_H V with
+    n_H = 0.82 n_e and V the volume of the shell within the annulus's cylinder, (4 pi / 3) (r_out^2 - r_in^2)^(3/2).
+    """
+    pytest.importorskip("octavius.xray.moxha", exc_type=ImportError)
+    pytest.importorskip("emcee")
+    from types import SimpleNamespace
+
+    import astropy.units as u
+    from astropy.cosmology import FlatLambdaCDM
+
+    from octavius.xray.moxha.spectralfits import FitRadialSpectra
+
+    observation = SimpleNamespace(
+        redshift=0.1, hubble=0.68, _run_ID="test", _top_save_path=Path("."), emin=0.05, emax=10,
+        active_halos=[], active_instruments=[], _instrument_defaults=[],
+    )  # fmt: skip
+    fits = FitRadialSpectra(observation)
+    r_in, r_out, norm = 100 * u.kpc, 200 * u.kpc, 1e-3
+
+    distance = FlatLambdaCDM(H0=68, Om0=0.3, Ob0=0.048, Tcmb0=2.7).angular_diameter_distance(0.1) * 1.1
+    volume = (4 / 3) * np.pi * (r_out**2 - r_in**2) ** 1.5
+    expected = np.sqrt(norm * u.cm**-5 * 1e14 * 4 * np.pi * distance**2 / (0.82 * volume)).to(u.cm**-3).value
+
+    assert fits._electron_density(norm, r_in, r_out) == pytest.approx(expected, rel=1e-10)
+    assert 1e-4 < expected < 1e-2  # a sensible intracluster density

@@ -13,6 +13,7 @@ from ..extras import SPECTRAL_FITTING_PACKAGES, require_packages
 
 require_packages(packages=SPECTRAL_FITTING_PACKAGES, extra="xray-fitting", purpose="X-ray spectral fitting")
 
+import astropy.units as u
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.cosmology import FlatLambdaCDM
@@ -34,6 +35,7 @@ from ..spectral_fitting import XraySpectrum, band_luminosities, fit_apec_spectru
 FIT_NH = 0.018  # fixed Galactic absorbing column, 1e22 cm^-2
 FIT_MIN_COUNTS_PER_BIN = 500  # channels are grouped to at least this many counts, as moxha did with threeML
 N_SAVED_SAMPLES = 5000  # posterior samples saved per annulus
+H_PER_ELECTRON = 0.82  # n_H / n_e of fully ionised gas of about solar composition, as profilefits assumes
 
 """ DO NOT INCLUDE EVTS ANYWHERE HERE> ONLY PHA FILES ARE DEPROJECTED AND NOISE-CORRECTED"""
 
@@ -267,12 +269,46 @@ class FitRadialSpectra:
         self._logger.info(f" Fitting using arf: {self._spectrum.arf_path}")
         self._logger.info(f"Will fit between {self.fit_emin}-{self.fit_emax}")
 
+    def _electron_density(self, norm, r_in, r_out):
+        """
+        The electron density (cm^-3) of a deprojected annulus from its APEC norm, 1e-14 / (4 pi [D_A (1 + z)]^2) times
+        the integral of n_e n_H dV, with n_H = 0.82 n_e and the volume of the spherical shell from r_in to r_out
+        within the annulus's cylinder, (4 pi / 3) (r_out^2 - r_in^2)^(3/2) (as in profilefits' _norm_to_ne).
+
+        AI-generated: claude-opus-5-5
+        """
+        angular_distance = self.cosmo.angular_diameter_distance(self._redshift).to("cm").value
+        volume = (4.0 / 3.0) * np.pi * (r_out.to("cm").value ** 2 - r_in.to("cm").value ** 2) ** 1.5
+        return np.sqrt(
+            1e14 * 4.0 * np.pi * norm * (angular_distance * (1.0 + self._redshift)) ** 2 / (H_PER_ELECTRON * volume)
+        )
+
+    def _electron_density_summary(self, result, r_in, r_out, credible_interval=0.68):
+        """
+        The annulus's electron density at the best fit, with equal-tailed errors from the norm's posterior samples, in
+        the form of the fitted parameters.
+
+        AI-generated: claude-opus-5-5
+        """
+        best = self._electron_density(result.best_fit["norm"], r_in, r_out)
+        tail = 100.0 * (1.0 - credible_interval) / 2.0
+        lower, upper = np.percentile(self._electron_density(result.samples[:, 2], r_in, r_out), [tail, 100.0 - tail])
+        negative, positive = min(lower - best, 0.0), max(upper - best, 0.0)
+        return {
+            "value": best,
+            "negative_error": negative,
+            "positive_error": positive,
+            "error": 0.5 * (positive - negative),
+            "unit": u.cm**-3,
+        }
+
     def _record_fit_results(
         self,
     ):
         """
         Stores the annulus's fitted kT, norm and abundance (value with equal-tailed 68% errors, as profilefits reads
-        them), its radii and a thinned set of posterior samples, and saves a plot of the fit.
+        them), its electron density and X-ray luminosities, its radii and a thinned set of posterior samples, and
+        saves a plot of the fit.
 
         AI-generated: claude-opus-5-5
         """
@@ -283,6 +319,7 @@ class FitRadialSpectra:
             "kT": result.parameter_summary("kT"),
             "norm": result.parameter_summary("norm"),
             "abund": result.parameter_summary("abund"),
+            "ne": self._electron_density_summary(result, r_in=radii[0], r_out=radii[1]),
             "radii": radii,
             "posterior_samples": {
                 "kT": result.samples[::thin, 0],
