@@ -8,10 +8,10 @@ The X-ray modules need packages that Octavius does not otherwise use, so they ar
 
 ```bash
 pip install "octavius[xray]"           # mock observations: yt, pyXSIM, SOXS and others
-pip install "octavius[xray-fitting]"   # also moxha's profile and spectral fits and tessellated maps
+pip install "octavius[xray-fitting]"   # also spectral fits and tessellated maps
 ```
 
-The fitting extra adds emcee, lmfit, vorbin and others (no XSPEC or HEASoft installation is needed). Using a module whose packages are missing gives an error saying which extra to install.
+The fitting extra adds emcee and vorbin (no XSPEC or HEASoft installation is needed). Using a module whose packages are missing gives an error saying which extra to install.
 
 ## Data files
 
@@ -63,8 +63,10 @@ By default the gas within `radius_factor` × r500c of the halo centre is read, s
 moxha's fitting modules are not imported with the rest, as they need the `xray-fitting` extra:
 
 ```python
-from octavius.xray.moxha import profilefits, spectralfits, tessmaps
+from octavius.xray.moxha import spectralfits, tessmaps
 ```
+
+moxha's profile fitting and scaling-relation analysis (`profilefits`) is not included in Octavius; it remains available in [moxha's repository](https://github.com/Fred-Jennings/moxha).
 
 ### Spectral fits
 
