@@ -33,7 +33,7 @@ from matplotlib.offsetbox import AnchoredText
 from ..spectral_fitting import XraySpectrum, band_luminosities, fit_apec_spectrum, plot_spectral_fit
 
 FIT_NH = 0.018  # fixed Galactic absorbing column, 1e22 cm^-2
-FIT_MIN_COUNTS_PER_BIN = 500  # channels are grouped to at least this many counts, as moxha did with threeML
+FIT_MIN_COUNTS_PER_BIN = 25  # channels are grouped to at least this many counts (moxha used 500 with threeML)
 N_SAVED_SAMPLES = 5000  # posterior samples saved per annulus
 H_PER_ELECTRON = 0.82  # n_H / n_e of fully ionised gas of about solar composition, as moxha's profilefits assumes
 
@@ -162,7 +162,7 @@ class FitRadialSpectra:
                     n_max: The maximum number of annuli to fit. This can save time for large clusters where you may have lots of annuli and you don't want to fit them all. We will include the extremal annuli and so the actual number of fits may be more by 1 or 2. Default = 15
                     n_min: Don't fit for an observation if there are fewer than n_min deprojected annuli availble. Default = 4
                     abund: Fix the abundance (solar, Anders & Grevesse) at this value instead of fitting it, e.g. 0.3 when the spectra cannot constrain it. Default = None (fitted)
-                    min_counts_per_bin: Group consecutive channels to at least this many counts before fitting; None fits every channel. Fewer counts per bin keep more of the line structure that constrains the abundance. Default = 500
+                    min_counts_per_bin: Group consecutive channels to at least this many counts before fitting; None fits every channel. Fewer counts per bin keep more of the line structure that constrains the abundance. Default = 25
         Returns:
         """
         self._fixed_abund = abund
