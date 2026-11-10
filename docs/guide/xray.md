@@ -83,3 +83,13 @@ plot_spectral_fit(spectrum, result, emin=0.5, emax=7.0, output_path="fit.png")
 
 The model is folded through the instrument response once per instrument and redshift (about 10 s), after which each fit, including its posterior, takes a second or two.
 
+Each annulus's results also include its X-ray luminosities: the unabsorbed luminosity of the fitted model in each energy band set in the `xray` section of the configuration, with errors from the posterior samples:
+
+```yaml
+xray:
+  lx_bands:   [[0.5, 2.0], [0.1, 2.4]]  # [emin, emax] in keV
+  lx_frame:   REST                      # or OBSERVED
+```
+
+The bands are plain integrals of the model spectrum, with no instrument response. With `REST`, a band is the luminosity emitted between `emin` and `emax` in the source's frame (so K-corrected); with `OBSERVED`, it is the luminosity implied by the flux observed between `emin` and `emax`. The luminosities are stored under `"Lx"` in the fitted data, keyed by band (e.g. `"Lx_0.5_2keV"`), in erg/s. For deprojected annuli they are the luminosities of the spherical shells.
+
