@@ -17,7 +17,6 @@ import pytest
 from octavius import load_catalogue, build_analyser
 from octavius.xray.data_files import xray_data_dir
 from octavius.xray.extras import (
-    PROFILE_FITTING_PACKAGES,
     SPECTRAL_FITTING_PACKAGES,
     TESSELLATION_PACKAGES,
     require_packages,
@@ -135,7 +134,6 @@ def test_fitting_modules_need_their_packages() -> None:
     modules = {
         "spectralfits": SPECTRAL_FITTING_PACKAGES,
         "tessmaps": TESSELLATION_PACKAGES,
-        "profilefits": PROFILE_FITTING_PACKAGES,
     }
     for module, packages in modules.items():
         if all(find_spec(package) is not None for package in packages):

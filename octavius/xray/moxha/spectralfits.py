@@ -35,7 +35,7 @@ from ..spectral_fitting import XraySpectrum, band_luminosities, fit_apec_spectru
 FIT_NH = 0.018  # fixed Galactic absorbing column, 1e22 cm^-2
 FIT_MIN_COUNTS_PER_BIN = 500  # channels are grouped to at least this many counts, as moxha did with threeML
 N_SAVED_SAMPLES = 5000  # posterior samples saved per annulus
-H_PER_ELECTRON = 0.82  # n_H / n_e of fully ionised gas of about solar composition, as profilefits assumes
+H_PER_ELECTRON = 0.82  # n_H / n_e of fully ionised gas of about solar composition, as moxha's profilefits assumes
 
 """ DO NOT INCLUDE EVTS ANYWHERE HERE> ONLY PHA FILES ARE DEPROJECTED AND NOISE-CORRECTED"""
 
@@ -273,7 +273,7 @@ class FitRadialSpectra:
         """
         The electron density (cm^-3) of a deprojected annulus from its APEC norm, 1e-14 / (4 pi [D_A (1 + z)]^2) times
         the integral of n_e n_H dV, with n_H = 0.82 n_e and the volume of the spherical shell from r_in to r_out
-        within the annulus's cylinder, (4 pi / 3) (r_out^2 - r_in^2)^(3/2) (as in profilefits' _norm_to_ne).
+        within the annulus's cylinder, (4 pi / 3) (r_out^2 - r_in^2)^(3/2) (as in moxha's profilefits, _norm_to_ne).
 
         AI-generated: claude-opus-5-5
         """
@@ -306,7 +306,7 @@ class FitRadialSpectra:
         self,
     ):
         """
-        Stores the annulus's fitted kT, norm and abundance (value with equal-tailed 68% errors, as profilefits reads
+        Stores the annulus's fitted kT, norm and abundance (value with equal-tailed 68% errors, as moxha's profilefits reads
         them), its electron density and X-ray luminosities, its radii and a thinned set of posterior samples, and
         saves a plot of the fit.
 
