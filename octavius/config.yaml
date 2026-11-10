@@ -73,6 +73,11 @@ photometry:
   split_age:                  0.01  # Gyr
 
 
+xray:  # mock X-ray observations (octavius/xray): luminosities from the spectral fits of moxha's annuli
+  lx_bands:   [[0.5, 2.0]]  # [emin, emax] in keV, as many as wanted; plain integrals of the model spectrum
+  lx_frame:   REST          # REST: emitted between the energies in the source's frame (K-corrected); OBSERVED
+
+
 parallelism:
   n_io_chunks:        10    # for IO reads on datasets, not chunking the pipeline
   cores_per_rank:     4     # number of CPU cores assigned to each MPI rank

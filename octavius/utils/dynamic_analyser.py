@@ -685,7 +685,13 @@ class OctaviusAnalyser:
 
         gas = self.get_xray_gas(halo_index=halo_index, radius_factor=radius_factor, region=region)
 
-        return build_xray_observation(gas=gas, make_grad_fields=make_grad_fields, observation_kwargs=observation_kwargs)
+        observation = build_xray_observation(
+            gas=gas, make_grad_fields=make_grad_fields, observation_kwargs=observation_kwargs
+        )
+        # the luminosity bands and frame for the spectral fits (FitRadialSpectra), from the config's xray section
+        observation.lx_bands = self._config.lx_bands
+        observation.lx_frame = self._config.lx_frame
+        return observation
 
     def _extract_groups(
         self,

@@ -38,6 +38,8 @@ GENERATOR_BIN_WIDTH = 0.002  # keV; 2 eV resolves absorption edges to <0.5% per 
 APEC_NORM_FACTOR = 1.0e14  # SOXS's factor turning its tables into XSPEC-normalised spectra
 PARAMETER_NAMES = ("kT", "abund", "norm")
 PARAMETER_UNITS = ("keV", "", "cm**-5")
+LUMINOSITY_BINS = 20000  # log-spaced bins of the unabsorbed model spectrum integrated over each luminosity band
+KEV_TO_ERG = 1.602176634e-9
 
 
 @dataclass
@@ -251,6 +253,104 @@ def apec_table(
         cosmic_rate=np.array([fold(row) for row in cosmic]),
         metal_rate=np.array([fold(row) for row in metals]),
     )
+
+
+@lru_cache(maxsize=16)
+def band_flux_table(
+    redshift: float,
+    bands: tuple[tuple[float, float], ...],
+    frame: str,
+    kT_range: tuple[float, float] = DEFAULT_KT_RANGE,
+) -> ApecTable:
+    """
+    The unabsorbed APEC energy flux reaching the observer (erg/s/cm^2) in each band, for unit normalisation, of the H,
+    He and trace elements and of the metals at solar abundance, at SOXS's tabulated temperatures; its "rate" is then
+    the flux in each band. Bands are [emin, emax] in keV: in the source's frame (frame "REST", so the flux observed
+    between emin / (1 + z) and emax / (1 + z)) or the observer's ("OBSERVED").
+
+    AI-generated: claude-opus-5-5
+    """
+    import soxs
+    from soxs.utils import regrid_spectrum
+
+    scale = 1.0 / (1.0 + redshift) if frame.upper() == "REST" else 1.0
+    observed_bands = [(emin * scale, emax * scale) for emin, emax in bands]
+    lowest, highest = min(b[0] for b in observed_bands), max(b[1] for b in observed_bands)
+    generator = soxs.ApecGenerator(0.99 * lowest, 1.01 * highest, LUMINOSITY_BINS, binscale="log", broadening=True)
+    energy_bins = np.asarray(generator.ebins, dtype=np.float64)
+    energies = 0.5 * (energy_bins[1:] + energy_bins[:-1])
+
+    all_kT = np.asarray(generator.Tvals, dtype=np.float64)
+    first = max(int(np.searchsorted(all_kT, kT_range[0])) - 1, 0)
+    last = min(int(np.searchsorted(all_kT, kT_range[1])) + 1, len(all_kT))
+    indices = list(range(first, last))
+    cosmic, metals, _ = generator._get_table(indices, redshift, 0.0)  # photons per bin per unit norm, / 1e14
+    generator.line_handle.close()  # SOXS leaves its APEC tables open
+    generator.coco_handle.close()
+
+    def band_fluxes(photons: np.ndarray) -> np.ndarray:
+        energy = APEC_NORM_FACTOR * photons * energies * KEV_TO_ERG  # erg/s/cm^2 per bin
+        return np.array(
+            [regrid_spectrum(np.array([emin, emax]), energy_bins, energy)[0] for emin, emax in observed_bands]
+        )
+
+    return ApecTable(
+        kT_values=all_kT[indices],
+        cosmic_rate=np.array([band_fluxes(row) for row in cosmic]),
+        metal_rate=np.array([band_fluxes(row) for row in metals]),
+    )
+
+
+def band_luminosity_name(emin: float, emax: float) -> str:
+    """
+    The name of a band's luminosity, e.g. "Lx_0.5_2keV".
+
+    AI-generated: claude-opus-5-5
+    """
+    return f"Lx_{emin:g}_{emax:g}keV"
+
+
+def band_luminosities(
+    result: SpectralFitResult,
+    bands: list[list[float]],
+    frame: str,
+    luminosity_distance_cm: float,
+    kT_range: tuple[float, float] = DEFAULT_KT_RANGE,
+    credible_interval: float = 0.68,
+    max_samples: int = 5000,
+) -> dict[str, dict]:
+    """
+    The X-ray luminosity (erg/s) of a fitted spectrum's unabsorbed APEC model in each band ([emin, emax] in keV, in
+    the source's frame if frame is "REST", else the observer's): 4 pi D_L^2 times the energy flux in the band, at the
+    best fit and with equal-tailed errors from (up to max_samples of) the posterior samples. Returned in the form of
+    SpectralFitResult.parameter_summary, keyed by band_luminosity_name.
+
+    AI-generated: claude-opus-5-5
+    """
+    import astropy.units as u
+
+    table = band_flux_table(
+        result.fixed["redshift"], tuple((float(lo), float(hi)) for lo, hi in bands), frame.upper(), tuple(kT_range)
+    )
+    to_luminosity = 4.0 * np.pi * luminosity_distance_cm**2
+    best = result.best_fit
+    best_luminosity = to_luminosity * table.rate(best["kT"], best["abund"], best["norm"])
+    samples = result.samples[:: max(1, len(result.samples) // max_samples)]
+    sample_luminosity = to_luminosity * np.array([table.rate(kT, abund, norm) for kT, abund, norm in samples])
+
+    tail = 100.0 * (1.0 - credible_interval) / 2.0
+    luminosities = {}
+    for column, (emin, emax) in enumerate(bands):
+        lower, upper = np.percentile(sample_luminosity[:, column], [tail, 100.0 - tail])
+        negative, positive = min(lower - best_luminosity[column], 0.0), max(upper - best_luminosity[column], 0.0)
+        luminosities[band_luminosity_name(emin, emax)] = {
+            "value": best_luminosity[column],
+            "negative_error": negative,
+            "positive_error": positive,
+            "error": 0.5 * (positive - negative),
+            "unit": u.erg / u.s,
+        }
+    return luminosities
 
 
 def _channel_groups(counts: np.ndarray, min_counts: float | None) -> np.ndarray:

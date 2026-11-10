@@ -245,3 +245,42 @@ def test_hot_pixel_cleaning() -> None:
 
     assert _masking_correction(10, 2) == pytest.approx(1.25)
     assert _masking_correction(0, 0) == 1.0
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")  # SOXS leaves files open
+def test_band_luminosities() -> None:
+    """
+    The luminosity in each band is 4 pi D_L^2 times the model's energy flux, integrated by SOXS, between emin and emax
+    divided by 1 + z (rest frame) or between emin and emax (observed frame); with no posterior spread, no errors.
+    """
+    if not _have_soxs_files(APEC_TEST_FILES):
+        pytest.skip("SOXS's APEC tables are not downloaded")
+    import soxs
+
+    from octavius.xray.spectral_fitting import SpectralFitResult, band_luminosities
+
+    z, distance_cm = 0.1, 1.5e27
+    best = {"kT": 4.0, "abund": 0.3, "norm": 1e-3}
+    result = SpectralFitResult(
+        best_fit=best,
+        negative_error={},
+        positive_error={},
+        samples=np.tile([best["kT"], best["abund"], best["norm"]], (10, 1)),
+        cstat=0.0,
+        n_bins=10,
+        fixed={"redshift": z, "nH": 0.018},
+    )
+    generator = soxs.ApecGenerator(0.01, 20.0, 100000, binscale="log", broadening=True)
+    spectrum = generator.get_spectrum(best["kT"], best["abund"], z, best["norm"])
+    generator.line_handle.close()
+    generator.coco_handle.close()
+
+    bands = [[0.5, 2.0], [2.0, 10.0]]
+    for frame, scale in (("REST", 1 / (1 + z)), ("OBSERVED", 1.0)):
+        luminosities = band_luminosities(result, bands=bands, frame=frame, luminosity_distance_cm=distance_cm)
+        for emin, emax in bands:
+            expected = 4 * np.pi * distance_cm**2 * spectrum.get_flux_in_band(emin * scale, emax * scale)[1].value
+            luminosity = luminosities[f"Lx_{emin:g}_{emax:g}keV"]
+            assert luminosity["value"] == pytest.approx(expected, rel=1e-3)
+            assert luminosity["negative_error"] == pytest.approx(0.0, abs=1e-6 * expected)
+            assert luminosity["positive_error"] == pytest.approx(0.0, abs=1e-6 * expected)

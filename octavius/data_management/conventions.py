@@ -26,7 +26,7 @@ logger = get_logger()
 
 # for config parsing
 CONFIG_FIELDS = frozenset(
-    {"thresholds", "physics", "fof6d", "fof_haloes", "properties", "photometry", "parallelism", "logging"}
+    {"thresholds", "physics", "fof6d", "fof_haloes", "properties", "photometry", "xray", "parallelism", "logging"}
 )
 FILEPATHS = frozenset({"snapshot_path", "output_dir", "halo_catalogue_path", "photometry_table_path"})
 VALID_SIM_TYPES = frozenset({"SIMBA", "SIMBA-C", "SWIFT-KIARA", "SWIFT-EAGLE", "SWIFT-COLIBRE", "TNG"})
@@ -42,7 +42,10 @@ ALWAYS_POSITIVE = frozenset(
     {"b", "halo_b", "velocity_factor", "n_io_chunks", "interpolation_bins", "aperture_size", "virial_factors"}
 )
 
+VALID_LX_FRAMES = frozenset({"REST", "OBSERVED"})
+
 VALID_ENTRIES: dict[str, frozenset[str]] = {
+    "lx_frame": VALID_LX_FRAMES,
     "simulation_type": VALID_SIM_TYPES,
     "halo_id_source": VALID_HALO_CATS,
     "extinction_law": VALID_EXT_LAWS,
@@ -151,6 +154,9 @@ class OctaviusConfig:
     split_age: float = 0.01
     _keep_spectra: bool = False  # used for standalone photometry, not in YAML file
 
+    lx_bands: list[list[float]] = field(default_factory=lambda: [[0.5, 2.0]])  # keV, for X-ray spectral fits
+    lx_frame: str = "REST"  # REST: emitted between the energies (K-corrected); OBSERVED: observed between them
+
     terminal_output_level: str = "INFO"
     keep_logs: bool = False
     quiet: bool = False
@@ -182,6 +188,10 @@ class OctaviusConfig:
                 raise ValueError(
                     f"'{user_entered}' is not a valid choice; please select from {', '.join(valid_entries)}."
                 )
+
+        for band in self.lx_bands:
+            if len(band) != 2 or not 0 < band[0] < band[1]:
+                raise ValueError(f"'lx_bands' entries must be [emin, emax] with 0 < emin < emax (keV), not {band}.")
 
         if self.halo_attach_ptypes is not None:
             invalid = set(self.halo_attach_ptypes) - BARYONIC_PTYPES
