@@ -19,6 +19,8 @@ SOXS downloads the instrument files it needs (responses, backgrounds, PSFs) the 
 
 ## Observing a halo
 
+A complete script, from the snapshot to fitted radial profiles, is in the [examples](../examples/xray_observations.md).
+
 The catalogue must contain `r500c` and `m500c`, which it does when 500 is among the `virial_factors` in the configuration (the default).
 
 ```python
@@ -56,7 +58,7 @@ observation.ObservePhotons(
 
 `xray_observation()` returns a moxha `Observation`, so everything moxha offers is available from it. To work with the gas directly instead, `analyser.get_xray_gas(halo_index)` returns it (with the halo's centre, r500c, m500c and the other particle types in the same region) in physical units.
 
-By default the gas within `radius_factor` × r500c of the halo centre is read, searching the whole snapshot. `region="halo"` reads only the gas belonging to the halo, which is much quicker for large snapshots but misses gas outside the halo's boundary. `MakePhotons(sphere_R500s=...)` should not exceed `radius_factor`.
+By default (`region="sphere"`) the gas within `radius_factor` × r500c of the halo centre is read, searching the whole snapshot. `region="halo"` reads only the gas belonging to the halo, which is much quicker for large snapshots but misses gas outside the halo's boundary. `MakePhotons(sphere_R500s=...)` should not exceed `radius_factor`.
 
 ## Fitting
 
