@@ -142,6 +142,14 @@ Gas properties are also computed for the halo CGM, which is defined as being gas
 
 - `temperature_gas_metal_weighted_cgm`: the metallicity-weighted temperature.
 
+X-ray properties are computed for the halo's X-ray emitting gas: gas hotter than `xray_temperature_min`, less dense than `xray_density_max`, not star-forming, and not a wind particle (where the snapshot records winds). The emission uses the APEC emissivities of yt's `apec_emissivity_v3.h5` table (shipped with Octavius), as pyXSIM uses for mock X-ray photons, for fully ionised gas:
+
+- `Lx_{emin}_{emax}keV`: the rest-frame X-ray luminosity, in erg/s, in each band of `lx_bands` (e.g. `Lx_0.5_2keV`), $\sum n_e n_H V \left[\epsilon_{\rm prim}(T) + (Z / Z_\odot)\,\epsilon_{\rm metals}(T)\right]$.
+
+- `temperature_xray_weighted`: the temperature weighted by the X-ray luminosity in the first band.
+
+- `temperature_spectroscopic_like`: the spectroscopic-like temperature $\sum m \rho T^{1/4} / \sum m \rho T^{-3/4}$ (Mazzotta et al. 2004) of the X-ray emitting gas above `xray_tsl_temperature_min`, which approximates the temperature a spectral fit would give.
+
 (local-environment-properties)=
 ## Local Environment Properties
 

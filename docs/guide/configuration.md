@@ -93,11 +93,19 @@ Please note disabling a particle entirely may have unintended consequences: for 
 
 ## X-ray Parameters
 
-These set the X-ray luminosities recorded with moxha's spectral fits (see [Mock X-ray Observations](xray.md)).
+These set the haloes' X-ray properties in the catalogue, and the X-ray luminosities recorded with moxha's spectral fits (see [Mock X-ray Observations](xray.md)).
 
-`lx_bands`: the energy bands, as a list of `[emin, emax]` in keV (default: `[[0.5, 2.0]]`).
+`lx_bands`: the energy bands, as a list of `[emin, emax]` in keV (default: `[[0.5, 2.0]]`). The catalogue has a column `Lx_{emin}_{emax}keV` for each.
 
-`lx_frame`: `REST` for luminosities emitted within the bands in the source's frame (K-corrected), or `OBSERVED` for luminosities within the bands as observed (default: `REST`).
+`lx_frame`: for moxha's spectral fits, `REST` for luminosities emitted within the bands in the source's frame (K-corrected), or `OBSERVED` for luminosities within the bands as observed (default: `REST`). The catalogue luminosities are always rest frame.
+
+`xray_temperature_min`: the temperature, in $K$, above which gas counts as X-ray emitting (default: `2.0e5`).
+
+`xray_density_max`: the density, in proton masses per cm$^3$, below which gas counts as X-ray emitting (default: `0.01`); star-forming and wind particles never do.
+
+`xray_solar_metallicity`: the solar metallicity converting metal mass fractions for the APEC emissivities (default: `0.01295`, as yt and pyXSIM use).
+
+`xray_tsl_temperature_min`: the temperature, in $K$, above which X-ray emitting gas enters the spectroscopic-like temperature (default: `5.8e6`, i.e. 0.5 keV).
 
 ## FOF6D Parameters
 
