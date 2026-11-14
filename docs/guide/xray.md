@@ -2,6 +2,8 @@
 
 Every halo in an Octavius catalogue already has the X-ray luminosities and temperatures of its hot gas (see the halo outputs in {doc}`../features/aggregate_properties`), computed from the same APEC emissivities with no extra packages. For individual haloes, Octavius can also make mock X-ray observations with [moxha](https://github.com/Fred-Jennings/moxha), written by Fred Jennings and included in Octavius (`octavius.xray.moxha`) with his permission. Octavius reads the gas around a halo from the snapshot, through the same readers as the pipeline (so this works for every supported simulation type), and hands it to moxha as an in-memory yt dataset. moxha then generates photons from the gas with pyXSIM and observes them with the instrument models of SOXS, producing event files, images, spectra and profiles.
 
+If you use the mock X-ray observations, please cite the moxha paper: Jennings, F. & Davé, R. (2023), MNRAS, 526, 1367.
+
 ## Installation
 
 The X-ray modules need packages that Octavius does not otherwise use, so they are optional extras:
