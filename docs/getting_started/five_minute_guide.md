@@ -20,7 +20,7 @@ The Octavius Analyser package for post-catalogue analysis may require additional
 
 ## Which snapshots and halo catalogues are supported?
 
-Octavius currently supports a variety of snapshot formats and corresponding halo catalogues. The code is designed to be trivially extensible: new simulation types and halo catalogues can be supported in as few as fifty lines of code. Currently, the [SWIFT ecosystem](https://swift.strw.leidenuniv.nl/) is well-supported, as are [SIMBA](https://arxiv.org/abs/1901.10203) snapshots. Provisional support currently exists for [IllustrisTNG](https://www.tng-project.org/).
+Octavius currently supports a variety of snapshot formats and corresponding halo catalogues. Currently, the [SWIFT ecosystem](https://swift.strw.leidenuniv.nl/) is well-supported, as are [SIMBA](https://arxiv.org/abs/1901.10203) snapshots. Provisional support currently exists for [IllustrisTNG](https://www.tng-project.org/).
 
 [HBT-HERONS](https://hbt-herons.strw.leidenuniv.nl/), [AHF](https://arxiv.org/abs/0904.3662), and [SUBFIND](https://www.tng-project.org/data/docs/specifications/#sec2b) catalogues are supported with full hierarchy mapping and inclusive properties. If a snapshot has no halo assignments at all, `FOF` runs a built-in friends-of-friends halo finder instead; `SNAP_OR_FOF` does so only when the snapshot has no halo IDs, and with `write_halo_ids` the FOF results are saved to the snapshot for future runs.
 
@@ -57,7 +57,7 @@ Data is dynamically loaded and released between stages to minimise the memory fo
 
 The pipeline is primarily written in [numba](https://numba.readthedocs.io/en/stable/user/overview.html), a [just-in-time](https://en.wikipedia.org/wiki/Just-in-time_compilation) (JIT) compiler for Python code which achieves machine-level speed. The computations are therefore competitive with low-level languages. 
 
-Indicative benchmark: On a 192-core node using 48 MPI ranks with 4 threads each, catalogue generation for the flagship SIMBA $z=0$ snapshot with $10^{9}$ gas and $10^{9}$ dark matter particles took around 3 minutes, including running an initial 3DFoF to identify haloes.  For comparison, the predecessor Caesar package took 3-4 hours.
+Indicative benchmark: On a 192-core node using 48 MPI ranks with 4 threads each, catalogue generation for the flagship SIMBA $z=0$ snapshot with $10^{9}$ gas and $10^{9}$ dark matter particles took around 3 minutes, including running an initial 3DFoF to identify haloes.  For comparison, the predecessor [caesar](https://caesar.readthedocs.io/) package took 3-4 hours.
 
 :::{tip}
 Our tests suggest that it is optimal to use a fairly small number of threads (e.g. 4) and distribute the workload over more cores using MPI ranks.
@@ -65,7 +65,10 @@ Our tests suggest that it is optimal to use a fairly small number of threads (e.
 
 ## How much memory does it need?
 
-In addition to the raw speed advantage, numba avoids the intermediate array allocations which the same code in idiomatic numpy would produce. The memory profile is therefore lean relative to the size of the snapshots being analysed.  On the aforementioned 241GB flagship SIMBA snapshot, the peak memory usage was about 150GB. 
+
+The memory profile is therefore lean relative to the size of the snapshots being analysed.  
+A key benefit of numba, besides speed, is that it avoids intermediate array allocations that idiomatic numpy would produce, minimising memory requirements.
+On the aforementioned 241GB flagship SIMBA snapshot, the peak memory usage was about 150GB. 
 
 ## How do I know it works?
 

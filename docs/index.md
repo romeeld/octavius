@@ -42,18 +42,18 @@ hide-toc: true  # remove RHS sidebar
 Features include:
 
 - Support for [SWIFT](https://swift.strw.leidenuniv.nl/) (EAGLE, KIARA, COLIBRE), [SIMBA](https://ui.adsabs.harvard.edu/abs/2019MNRAS.486.2827D/abstract) and [SIMBA-C](https://academic.oup.com/mnras/article/525/1/1061/7239294), and [TNG](https://www.tng-project.org/) snapshots
-- Support for [AHF](https://iopscience.iop.org/article/10.1088/0067-0049/182/2/608), [HBT-HERONS](https://hbt-herons.strw.leidenuniv.nl/) and [SUBFIND](https://www.tng-project.org/data/docs/specifications/#sec2b) halo catalogues, or built-in friends-of-friends halo finding for snapshots without them
+- Support for [AHF](https://iopscience.iop.org/article/10.1088/0067-0049/182/2/608), [HBT-HERONS](https://hbt-herons.strw.leidenuniv.nl/) and [SUBFIND](https://www.tng-project.org/data/docs/specifications/#sec2b) halo catalogues, or use the built-in 3DFoF halo finder
 - Snapshot-agnostic catalogues with hundreds of homogeneously-calculated properties for (sub)haloes and galaxies
-- Built-in galaxy finding with a 6D friends-of-friends algorithm, cross-matched (but not equivalent to) subhaloes
-- User-friendly API for working with output catalogues to access properties and halo hierarchies.
+- Built-in galaxy finding with a 6DFoF applied to dense gas and stars, cross-matched (but not equivalent) to subhaloes
+- User-friendly units-enabled API for working with output catalogues to access computed properties and halo hierarchies.
 - Access to particle membership for each galaxy or (sub)halo, allowing user-defined property calculations
 - Photometry computed in all [FSPS](https://dfm.io/python-fsps/current/)-compatible bands with and without line-of-sight dust attenuation
 - Ability to output individual galaxy spectra and re-configure FSPS and attenuation options on-the-fly
 - Ability to build lightcones from galaxy or halo catalogues, optionally including redshift-space distortions
+- Highly optimised for speed, memory, and scalability
 - Comprehensive unit and regression tests for stability
-- Optimised for speed and memory: A billion-particle simulation catalogue builds in minutes on a single node, with a peak memory around half the snapshot size
 
-To get started, please refer to the [installation](getting_started/installation.md) guide; for a brief overview of the package, please see the [five-minute guide](getting_started/five_minute_guide.md).
+To get started, begin with the [installation](getting_started/installation.md) guide, and then to run it see the [five-minute guide](getting_started/five_minute_guide.md).
 
 Octavius is the spiritual successor to [caesar](https://caesar.readthedocs.io/). `caesar` users should please refer to the [Caesar users guide](guide/caesar_users_guide.md).
 

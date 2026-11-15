@@ -1,38 +1,41 @@
 # Quickstart
 
-Once installed, running the analysis requires a configuration YAML file that contains all of the parameters and settings necessary to run the pipeline. A baseline configuration file can be automatically generated in your current working directory from the terminal:
+<b>YAML configuration file:</b>  Generating a catalogue requires a configuration YAML file that contains all of the parameters and settings necessary to run the pipeline. A baseline configuration file can be automatically generated in your current working directory from the terminal:
 
 ```bash
 % octavius init
 ```
 
-Photometry uses the [Python-FSPS](https://github.com/dfm/python-fsps) package, which is used to build a lookup table for emission from a Single Stellar Population (SSP).  The Octavius package includes a standard SSP table using a Chabrier IMF, but also provides a method to generate your own SSP table using any FSPS options you like:
+After changing the paths appropriately, the YAML file should be fully functional.  The YAML file entries are described in more detail in the User's Manual.
+
+<b>Photometry:</b> To compute magnitudes, Octavius requires an Single Stellar Population (SSP) spectrum file lookup table generated with [Python-FSPS](https://github.com/dfm/python-fsps).  Octavius ships with a lookup table constructed for a standard Chabrier IMF including emission lines, set as the YAML file default.
+
+Octavius provides a method to generate your own table with any desired FSPS options.  First install [Python-FSPS](https://github.com/dfm/python-fsps), and then do as follows:
 
 ```python
 from pathlib import Path  # pathlib is in the standard library
-from octavius import generate_photometry_table, generate_photometry_table_from_sp
+from octavius import generate_photometry_table_from_sp
+import fsps
 
 photometry_table_filepath = Path("/path/to/table.hdf5")
-
-generate_photometry_table(photometry_table_filepath)  # default method with basic options 
-
-import fsps
-sp = fsps.StellarPopulation(...)  # full control over FSPS options
+sp = fsps.StellarPopulation(...)  # full control over FSPS options; see FSPS docs
 generate_photometry_table_from_sp(photometry_table_filepath, sp)
 ```
 
-Snapshots can be analysed from either the command line or within a Python script: both methods are straightforward. For large snapshots and more complex workflows, it is recommended to run from the command line for greater MPI flexibility:
+<b>Catalogue Generation:</b> Snapshots can be analysed from either the command line or within a Python script: both methods are straightforward. 
+
+For large snapshots and more complex workflows, it is recommended to run from the command line for greater MPI flexibility (don't forget to set the number of threads per MPI task in the YAML file):
 
 ```bash
 % octavius analyse --help  # for a list of command-line arguments
-% mpirun -n [N_TASKS] octavius analyse -c /path/to/config.yaml
+% mpirun -np N_TASKS octavius analyse -c /path/to/config.yaml
 ```
 
 :::{note}
-The mpirun command must use your native Python MPI, NOT your system MPI used e.g. for running C code.  For instance, if you use the anaconda package, it would be in ${HOME}/anaconda3/bin/mpirun.
+The mpirun command must use your native Python MPI, NOT your system MPI used for running C/C++/FORTRAN codes.  For instance, if you use the anaconda package, it is likely to be in `${HOME}/anaconda3/bin/mpirun`.
 :::
 
-To run the catalogue generation within a Python script, import the analyse_snapshot function; it is natively MPI-aware:
+To run the catalogue generation within a Python script, import the `analyse_snapshot` function:
 
 ```python
 from pathlib import Path
@@ -47,7 +50,11 @@ config = OctaviusConfig(...)
 catalogue_path = analyse_snapshot(config)
 ```
 
-Once the catalogue is generated, a convenient object-oriented API is provided for loading computed properties.  Here we load the stellar masses of all galaxies into a numpy array, converting the values to grams:
+Note that to set the number of MPI ranks, you must start your python shell using MPI, as in `mpirun -np N_TASKS python my_script.py`.
+
+<b>Working with catalogues:</b> A convenient object-oriented API is provided for loading computed properties; the full list of properties is detailed in the Features section.  Catalogue objects provide unit and physical/comoving conversions, masks, and metadata information for group properties.
+
+Here we get some basic info and then grab the stellar masses of all galaxies in grams:
 
 ```python
 from pathlib import Path
@@ -57,14 +64,18 @@ catalogue_filepath = Path("/path/to/catalogue.hdf5")
 
 catalogue = load_catalogue(catalogue_filepath)  # returns catalogue object
 
-print(catalogue)  # shows basic cataloguealogue information
+print(catalogue)  # shows basic catalogue information
 catalogue.galaxies.describe()  # lists datasets available in galaxies
 
+# get some simulation info, namely the box size in physical Mpc
+boxsize = catalogue.sim_info("boxsize", to_units="Mpc", physical=True)    
+
 # array of galaxy stellar masses in grams
-star_mass_grams = catalogue.galaxies.get_dataset("mass_star", to_units="g")
+stellar_mass_grams = catalogue.galaxies.get_dataset("mass_star", to_units="g")
 ```
 
-Octavius provides an easy way to traverse the halo hierarchy via stored indices.  Here we get the total stellar mass within the haloes of those galaxies:
+Octavius provides an easy way to traverse the halo hierarchy via stored index masks.  
+Here we get the total stellar mass within the haloes of all galaxies:
 
 ```python
 # get the stellar masses of their field haloes
@@ -72,16 +83,14 @@ field_halo_idx = catalogue.galaxies.get_membership(name="field_halo_index")  # i
 halo_star_mass_grams = catalogue.haloes.get_dataset("mass_star", to_units="g", mask=field_halo_idx)
 ```
 
-Catalogue objects provide unit and physical/comoving conversions, masks, and metadata information for group properties, as well as simulation metadata and cosmological information.
-They further store the list of particle indices for every galaxy and (sub)halo:
+The catalogues also store the list of particle indices for every object, and it is possible to retrieve a specific property for all particles in an object:
 
 ```python
-# get simulation info
-boxsize = catalogue.sim_info("boxsize", to_units="Mpc", physical=True)    
+# get the indices into the original snapshot of stars in galaxy 2
+star_indices = catalogue.galaxies.get_particle_indices(ptype="star", group_index=2)
 
-# get the indices into the original snapshot of stars in galaxy 0
-star_indices = catalogue.galaxies.get_particle_indices(ptype="star", group_index=0)
-
+# get the iron abundance of every gas particle in haloes 0, 5, and 17.
+iron_abundances = analyser.get_particle_data(name="fraction_Fe", ptype="gas", group_type='haloes', group_indices=[0, 5, 17])
 ```
 
 The Example Scripts section shows more detailed use cases.
