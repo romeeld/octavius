@@ -15,7 +15,7 @@ pip install octavius
 By design, the package has minimal and well-supported dependencies; it is written entirely in Python.
 
 :::{note}
-The Octavius Analyser package for post-catalog analysis may require additional dependencies specific to a particular task.  This will be noted in the documentation for that Analyser package.
+The Octavius Analyser package for post-catalogue analysis may require additional dependencies specific to a particular task.  This will be noted in the documentation for that Analyser package.
 :::
 
 ## Which snapshots and halo catalogues are supported?
@@ -57,7 +57,7 @@ Data is dynamically loaded and released between stages to minimise the memory fo
 
 The pipeline is primarily written in [numba](https://numba.readthedocs.io/en/stable/user/overview.html), a [just-in-time](https://en.wikipedia.org/wiki/Just-in-time_compilation) (JIT) compiler for Python code which achieves machine-level speed. The computations are therefore competitive with low-level languages. 
 
-Indicative benchmark: On a 192-core node using 48 MPI ranks with 4 threads each, catalog generation for the flagship SIMBA $z=0$ snapshot with $10^{9}$ gas and $10^{9}$ dark matter particles took under 3 minutes, including running an initial 3DFoF to identify halos.  For comparison, the predecessor Caesar package took 3-4 hours.
+Indicative benchmark: On a 192-core node using 48 MPI ranks with 4 threads each, catalogue generation for the flagship SIMBA $z=0$ snapshot with $10^{9}$ gas and $10^{9}$ dark matter particles took around 3 minutes, including running an initial 3DFoF to identify haloes.  For comparison, the predecessor Caesar package took 3-4 hours.
 
 :::{tip}
 Our tests suggest that it is optimal to use a fairly small number of threads (e.g. 4) and distribute the workload over more cores using MPI ranks.

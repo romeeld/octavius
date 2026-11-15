@@ -64,7 +64,7 @@ catalogue.galaxies.describe()  # lists datasets available in galaxies
 star_mass_grams = catalogue.galaxies.get_dataset("mass_star", to_units="g")
 ```
 
-Octavius provides an easy way traverse the halo hierarchy via stored indices.  Here we get the total stellar mass within the halos of those galaxies:
+Octavius provides an easy way to traverse the halo hierarchy via stored indices.  Here we get the total stellar mass within the haloes of those galaxies:
 
 ```python
 # get the stellar masses of their field haloes
@@ -84,6 +84,6 @@ star_indices = catalogue.galaxies.get_particle_indices(ptype="star", group_index
 
 ```
 
-The Example Scripts section show more detailed use cases.
+The Example Scripts section shows more detailed use cases.
 
 
