@@ -18,7 +18,7 @@ For developers, please either clone or fork and specify the developer tools.
 pip install -e ".[dev,docs,test]"
 ```
 
-The package is currently pinned to relatively recent versions of its dependencies. [uv](https://docs.astral.sh/uv/) provides a fast, user-friendly installation route and methods for integration into existing projects.
+The package is currently pinned to relatively recent versions of its dependencies. The package manager [uv](https://docs.astral.sh/uv/) provides a fast, user-friendly installation route and methods for integration into existing projects.
 
 ```bash
 uv pip install octavius

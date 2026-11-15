@@ -37,21 +37,22 @@ hide-toc: true  # remove RHS sidebar
 
 <div class="landing-body" markdown="1">
 
-`octavius` is a high-performance, fully-parallelised galaxy simulation analysis toolkit written entirely in Python. When run on a simulation snapshot, `octavius` produces HDF5 analysis catalogues containing properties and membership information for haloes and galaxies. 
+`octavius` is a high-performance, fully-parallelised galaxy simulation analysis toolkit written entirely in Python. When run on a simulation snapshot, `octavius` produces HDF5 analysis cross-matched galaxy/halo catalogues containing a wide range of pre-computed properties along with particle membership information.  It further provides a platform for numerous follow-on science analyses.
 
 Features include:
 
 - Support for [SWIFT](https://swift.strw.leidenuniv.nl/) (EAGLE, KIARA, COLIBRE), [SIMBA](https://ui.adsabs.harvard.edu/abs/2019MNRAS.486.2827D/abstract) and [SIMBA-C](https://academic.oup.com/mnras/article/525/1/1061/7239294), and [TNG](https://www.tng-project.org/) snapshots
 - Support for [AHF](https://iopscience.iop.org/article/10.1088/0067-0049/182/2/608), [HBT-HERONS](https://hbt-herons.strw.leidenuniv.nl/) and [SUBFIND](https://www.tng-project.org/data/docs/specifications/#sec2b) halo catalogues, or built-in friends-of-friends halo finding for snapshots without them
-- Snapshot-agnostic catalogues
-- Built-in galaxy finding with a 6D friends-of-friends algorithm
-- Computes over fifty properties for haloes and galaxies (including subhaloes)
-- Photometry in all [FSPS](https://dfm.io/python-fsps/current/)-compatible bands with dust attenuation (no radiative transfer)
-- User-friendly API for working with output catalogues
-- Comprehensive membership mapping, including hierarchies
-- Standalone analysis tools (on-the-fly pipeline stages)
-- Galaxy and halo lightcones built from catalogues, with optional redshift-space distortions
-- Comprehensive unit and regression tests
+- Snapshot-agnostic catalogues with hundreds of homogeneously-calculated properties for (sub)haloes and galaxies
+- Built-in galaxy finding with a 6D friends-of-friends algorithm, cross-matched (but not equivalent to) subhalos
+- User-friendly API for working with output catalogues to access properties and halo hierarchies.
+- Access to particle membership for each galaxy or (sub)halo, allowing user-defined property calculations
+- Photometry computed in all [FSPS](https://dfm.io/python-fsps/current/)-compatible bands with and without line-of-sight dust attenuation
+- Ability to output individual galaxy spectra and re-configure FSPS and attenuation options on-the-fly
+- Ability to buildt lightcones from galaxy or halo catalogues, optionally including redshift-space distortions
+- Mock X-ray observations of haloes using pyXSIM and SOXS, plus fitting of resulting spectra to extract X-ray properties in annuli
+- Comprehensive unit and regression tests for stability
+- Optimized for speed and memory: A billion-particle simulation catalog builds in minutes on a single node, with a peak memory around half the snapshot size
 
 To get started, please refer to the [installation](getting_started/installation.md) guide; for a brief overview of the package, please see the [five-minute guide](getting_started/five_minute_guide.md).
 
