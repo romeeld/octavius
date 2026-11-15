@@ -168,7 +168,7 @@ class GroupCollection:
     get_galaxies(halo_index)
         Retrieve positional indices into the galaxy data of the galaxies belonging to a halo (halo collections only).
     get_particle_indices(ptype, group_index)
-        Retrieve positional indices into the raw simulation snapshot for the particles of a group.
+        Retrieve positional indices into the raw simulation snapshot for the particles of one or more groups.
     keys()
         Lists available dataset names.
     """
@@ -481,37 +481,60 @@ class GroupCollection:
     def get_particle_indices(
         self,
         ptype: str,
-        group_index: int,
-    ) -> np.ndarray:
+        group_index: int | list[int] | np.ndarray,
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
         """
-        Retrieves positional indices into the raw snapshot corresponding to the particles in the requested group.
+        Retrieves positional indices into the raw snapshot corresponding to the particles in the requested group(s).
 
         Parameters
         ----------
 
         ptype: str
             The particle type to retrieve snapshot indices for. Keyed by Octavius ptype names: star, gas, dm, bh
-        group_index: int
-            The GroupID (positional index) to retrieve particles for.
+        group_index: int or list[int] or np.ndarray
+            The GroupID (positional index) of the group, or several GroupIDs, to retrieve particles for.
 
         Returns
         -------
 
         indices: np.ndarray
-            Positional indices into the raw snapshot for the particles of type 'ptype' belonging to the group at group_index.
+            If group_index is a single integer, positional indices into the raw snapshot for the particles of type
+            'ptype' belonging to that group.
+        indices, offsets: tuple[np.ndarray, np.ndarray]
+            If group_index is a list or array, the indices of all the groups concatenated in the order given, and the
+            offsets such that ``indices[offsets[i] : offsets[i + 1]]`` belongs to ``group_index[i]``.
         """
         valid_ptypes = ["star", "gas", "bh", "dm"]
 
         if ptype not in valid_ptypes:
             raise ValueError(f"{ptype} is not in the catalogue ptypes: {valid_ptypes}")
 
-        if group_index < 0 or group_index >= self._n_groups:
-            raise IndexError(f"Index {group_index} is out of bound: {self._n_groups} groups exist.")
+        single_group = np.ndim(group_index) == 0
+        group_indices = np.atleast_1d(np.asarray(group_index, dtype=np.int64))
+
+        if np.any(group_indices < 0) or np.any(group_indices >= self._n_groups):
+            raise IndexError(f"Indices must lie in [0, {self._n_groups}): {self._n_groups} groups exist.")
 
         offsets = self._data[f"membership/{ptype}_offsets"]
         indices = self._data[f"membership/{ptype}_indices"]
 
-        return indices[offsets[group_index] : offsets[group_index + 1]]
+        if single_group:
+            group = group_indices[0]
+            return indices[offsets[group] : offsets[group + 1]]
+
+        all_offsets = offsets[:]
+        starts = all_offsets[group_indices]
+        ends = all_offsets[group_indices + 1]
+
+        new_offsets = np.zeros(len(group_indices) + 1, dtype=np.int64)
+        np.cumsum(ends - starts, out=new_offsets[1:])
+
+        particle_indices = np.empty(new_offsets[-1], dtype=indices.dtype)
+        for i in range(len(group_indices)):
+            if ends[i] > starts[i]:  # a group can have no particles of this type
+                particle_indices[new_offsets[i] : new_offsets[i + 1]] = indices[starts[i] : ends[i]]
+
+        return particle_indices, new_offsets
 
 
 class SimInfo:

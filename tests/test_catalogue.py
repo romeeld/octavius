@@ -104,6 +104,14 @@ def test_loader(mock_catalogue: h5py.File) -> None:
     particle_indices = cat.haloes.get_particle_indices("dm", group_index=0)
     assert len(particle_indices) > 0
 
+    # several haloes at once should give the same indices as one halo at a time
+    halo_list = [2, 0, 1]
+    all_indices, offsets = cat.haloes.get_particle_indices("dm", group_index=halo_list)
+    for i, halo in enumerate(halo_list):
+        np.testing.assert_array_equal(
+            all_indices[offsets[i] : offsets[i + 1]], cat.haloes.get_particle_indices("dm", group_index=halo)
+        )
+
     galaxies = cat.haloes.get_galaxies(halo_index=0)
     assert isinstance(galaxies, np.ndarray)
 
