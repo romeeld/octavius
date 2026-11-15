@@ -130,7 +130,7 @@ Only used when `halo_id_source` is `FOF` (or `SNAP_OR_FOF` and the snapshot has 
 
 `bands`: the FSPS-supported bands in which to compute magnitudes. Please run `fsps.list_filters()` to see the list of available options, or inspect the datasets in the Octavius photometry data file. For filters with multiple bands, e.g. `sdss_u`, `sdss_v` you can simply specify `sdss` and all of its bands will be run. The `v` filter is always enabled for $A_v$ computation. Furthermore, you can specify `all` for magnitudes in all available bands, or `uvoir` for magnitudes in all bands bluewards of five microns. (default: `["all"]`)
 
-`photometry_table_path`: the filepath to the Octavius photometry HDF5 datafile (can be left blank if not running photometry).
+`photometry_table_path`: the filepath to an Octavius photometry HDF5 datafile. If left blank, the Chabrier (2003) IMF table shipped with Octavius is used.
 
 `extinction_law`: Specify the extinction law to use. Octavius currently supports `POWER_LAW`, `CALZETTI`, `CONROY`, `CARDELLI`, `SMC`, `LMC`. In addition, two composite extinction laws are provided: `MIX_CALZ_MW` uses Cardelli for galaxies with $\log_{10}(\mathrm{sSFR}) < 0.1 \, \mathrm{Gyr}^{-1}$, Calzetti for $\log_{10}(\mathrm{sSFR}) > 1.0 \, \mathrm{Gyr}^{-1}$, and a linear mix in between; `COMPOSITE` adds a further metallicity dependence, using `MIX_CALZ_MW` for $Z > Z_{\odot}$, `SMC` for $Z < 0.1 Z_{\odot}$, and a linear combination in between. (default: `COMPOSITE`).
 

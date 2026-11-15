@@ -16,12 +16,12 @@ The [standalone analyser](../guide/standalone_analysis.md) enhances the function
 
 ## FSPS Data File
 
-The photometry pipeline requires a bespoke HDF5 data file known as the photometry table which is generated via `FSPS`. The provided method `generate_photometry_table()` includes basic access to the choice of IMF (`default: Chabrier`) and whether to use nebular emission (`default: True`); for full control over the parameters, an `fsps.StellarPopulation` can be passed directly to the provided `generate_photometry_table_from_sp()` method. Any invalid parameter choices will raise an error. 
+The photometry pipeline requires a bespoke HDF5 data file known as the photometry table which is generated via `FSPS`. Octavius ships with a table for a Chabrier (2003) IMF with nebular emission, which is used unless `photometry_table_path` is set, so photometry works without installing `FSPS`. Generating your own table requires `FSPS` (`pip install "octavius[photometry]"`, plus the FSPS data files). The provided method `generate_photometry_table()` includes basic access to the choice of IMF (`default: Chabrier`) and whether to use nebular emission (`default: True`); for full control over the parameters, an `fsps.StellarPopulation` can be passed directly to the provided `generate_photometry_table_from_sp()` method. Any invalid parameter choices will raise an error. 
 
 The `oversample` argument appears on both methods and exists to oversample in `[age, metallicity]` by the specified factors from the native `FSPS` ranges. Star particles will be interpolated onto the table, so the oversampling improves the accuracy of the interpolation through increased granularity. However, the caveat is this will increase the filesize of the data file by the product of the specified factors. As this table is generated once independently of the pipeline, the oversampling is set to `[2, 2]` by default, which produces a file of around `81 MB`.
 
 :::{tip}
-The photometry table contains metadata in its top-level attributes, which can be accessed via `h5py`; warnings will be raised if the version of Octavius running the analysis is mismatched with the version which generated the table.
+The photometry table contains metadata in its top-level attributes, which can be accessed via `h5py`; its FSPS version, spectral library and IMF are logged when it is read.
 :::
 
 ## Configuring Photometry
