@@ -65,15 +65,15 @@ Z_oxy = np.empty(shape=len(idx_of_interest), dtype=np.float64)
 
 for i, gal_idx in enumerate(idx_of_interest):
     # individual elements are read as fraction_<symbol>; asking for one the snapshot lacks lists those it has
-    oxygen = analyser.get_particle_data(name="fraction_O", ptype="gas", group_indices=gal_idx)
-    sfr = analyser.get_particle_data(name="sfr", ptype="gas", group_indices=gal_idx)
+    oxygen = analyser.get_particle_data(name="fraction_O", ptype="gas", group_index=gal_idx)
+    sfr = analyser.get_particle_data(name="sfr", ptype="gas", group_index=gal_idx)
     Z_oxy[i] = np.sum(oxygen * sfr) / np.sum(sfr)
 
 # or, alternatively, for every galaxy at once: passing several indices returns all their particles one after another,
 # plus offsets such that values[offsets[i] : offsets[i + 1]] belongs to the i-th galaxy
 all_gal_idx = np.arange(len(catalogue.galaxies))
-oxygen, offsets = analyser.get_particle_data(name="fraction_O", ptype="gas", group_indices=all_gal_idx)
-sfr, _ = analyser.get_particle_data(name="sfr", ptype="gas", group_indices=all_gal_idx)
+oxygen, offsets = analyser.get_particle_data(name="fraction_O", ptype="gas", group_index=all_gal_idx)
+sfr, _ = analyser.get_particle_data(name="sfr", ptype="gas", group_index=all_gal_idx)
 
 # sum over each galaxy's particles (bincount gives 0 for a galaxy with no gas, unlike np.add.reduceat)
 galaxy_of_particle = np.repeat(all_gal_idx, np.diff(offsets))

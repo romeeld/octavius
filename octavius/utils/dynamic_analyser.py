@@ -475,7 +475,7 @@ class OctaviusAnalyser:
         self,
         name: str,
         ptype: str,
-        group_indices: int | list[int] | np.ndarray,
+        group_index: int | list[int] | np.ndarray,
         group_type: str = "galaxies",
         to_units: str | None = None,
         to_physical: bool = False,
@@ -490,7 +490,7 @@ class OctaviusAnalyser:
             The Octavius name of the particle quantity (e.g. ``mass``, ``sfr``, ``metallicity``, ``temperature``).
         ptype: str
             The particle type to read: ``star``, ``gas``, ``dm`` or ``bh``.
-        group_indices: int or list[int] or np.ndarray
+        group_index: int or list[int] or np.ndarray
             The index (or indices) into the Octavius catalogue of the group(s) to read particles for.
         group_type: str, optional
             The type of group the indices are specified for: ``galaxies`` (default) or ``haloes``.
@@ -502,10 +502,10 @@ class OctaviusAnalyser:
         Returns
         -------
         values: np.ndarray
-            If group_indices is a single integer, the particle values of that group.
+            If group_index is a single integer, the particle values of that group.
         values, offsets: tuple[np.ndarray, np.ndarray]
-            If group_indices is a list or array, the particle values of all the groups concatenated in the order given,
-            and the offsets such that ``values[offsets[i] : offsets[i + 1]]`` belongs to ``group_indices[i]``.
+            If group_index is a list or array, the particle values of all the groups concatenated in the order given,
+            and the offsets such that ``values[offsets[i] : offsets[i + 1]]`` belongs to ``group_index[i]``.
 
         AI-generated: claude-opus-5-5
         """
@@ -519,8 +519,8 @@ class OctaviusAnalyser:
         if not self._reader.has_dataset(ptype=ptype, dataset=name):
             raise KeyError(self._reader.missing_dataset_message(ptype=ptype, dataset=name))
 
-        single_group = np.ndim(group_indices) == 0
-        indices = np.atleast_1d(np.asarray(group_indices, dtype=np.int64))
+        single_group = np.ndim(group_index) == 0
+        indices = np.atleast_1d(np.asarray(group_index, dtype=np.int64))
 
         n_groups = len(self._collections[group_type])
         if np.any(indices < 0) or np.any(indices >= n_groups):

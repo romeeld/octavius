@@ -137,18 +137,18 @@ def test_get_particle_data(mock_catalogue: h5py.File) -> None:
     analyser = build_analyser(catalogue=cat)  # uses the config stored in the catalogue
 
     # one galaxy: compare against reading the whole snapshot dataset and indexing it ourselves
-    star_mass = analyser.get_particle_data(name="mass", ptype="star", group_indices=0)
+    star_mass = analyser.get_particle_data(name="mass", ptype="star", group_index=0)
     all_star_mass = analyser._reader.read_full_dataset(ptype="star", dataset="mass")
     snapshot_indices = cat.galaxies.get_particle_indices(ptype="star", group_index=0)
     np.testing.assert_allclose(star_mass, all_star_mass[snapshot_indices])
 
     # the summed particle masses should match the catalogue stellar mass
     catalogue_star_mass = cat.galaxies.get_dataset("mass_star", to_units="Msun", to_physical=True)
-    star_mass_kg = analyser.get_particle_data(name="mass", ptype="star", group_indices=0, to_units="kg")
+    star_mass_kg = analyser.get_particle_data(name="mass", ptype="star", group_index=0, to_units="kg")
     np.testing.assert_allclose(star_mass_kg.sum(), catalogue_star_mass[0] * 1.98841e30, rtol=1e-4)
 
     # several groups, including a repeated one (groups can share particles)
-    values, offsets = analyser.get_particle_data(name="mass", ptype="star", group_indices=[0, 0])
+    values, offsets = analyser.get_particle_data(name="mass", ptype="star", group_index=[0, 0])
     np.testing.assert_array_equal(offsets, [0, len(star_mass), 2 * len(star_mass)])
     np.testing.assert_allclose(values[offsets[1] : offsets[2]], star_mass)
 
