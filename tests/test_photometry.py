@@ -347,3 +347,23 @@ def test_madau() -> None:
 
     at_redshift_zero = extinct_madau(wavelengths=test_wavelengths, redshift=0)
     np.testing.assert_array_equal(at_redshift_zero, np.ones_like(test_wavelengths), err_msg="test_madau failed.")
+
+
+def test_bundled_photometry_table() -> None:
+    """
+    Without a photometry_table_path, photometry uses the Chabrier table shipped with Octavius, read as float64.
+    """
+    from pathlib import Path
+
+    from octavius.data_management.conventions import OctaviusConfig
+    from octavius.photometry.photometry_tables import DEFAULT_PHOTOMETRY_TABLE, read_photometry_table
+
+    config_path = Path(__file__).parent.parent / "octavius" / "config.yaml"
+    config = OctaviusConfig.from_yaml(config_path=config_path, cores_per_rank=1, photometry_table_path=None)
+    assert config.photometry_table_path == DEFAULT_PHOTOMETRY_TABLE
+    assert DEFAULT_PHOTOMETRY_TABLE.exists()
+
+    table = read_photometry_table(DEFAULT_PHOTOMETRY_TABLE)
+    assert table.spectra.dtype == np.float64
+    assert table.spectra.shape == (len(table.metallicities), len(table.ages), len(table.wavelengths))
+    assert {"sdss_r", "v", "galex_fuv", "2mass_ks"} <= set(table.filters)

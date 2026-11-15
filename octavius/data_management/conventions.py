@@ -226,6 +226,12 @@ class OctaviusConfig:
         if self.write_halo_ids and sim_prefix == "TNG":
             raise ValueError("'write_halo_ids' is not supported for TNG, whose snapshots have no halo ID datasets.")
 
+        # without a photometry table of their own, users get the Chabrier (2003) IMF table shipped with Octavius
+        if self.stages.get("photometry", False) and self.photometry_table_path is None:
+            from ..photometry.photometry_tables import DEFAULT_PHOTOMETRY_TABLE  # avoid circular import
+
+            object.__setattr__(self, "photometry_table_path", DEFAULT_PHOTOMETRY_TABLE)
+
         # HACK: auto-expand photometry bands for user convenience
         if self.stages.get("photometry", False) and self.photometry_table_path is not None:
             from ..photometry.photometry_tables import resolve_band_names, read_filter_names  # avoid circular import
@@ -305,7 +311,7 @@ class OctaviusConfig:
 
         stages = dict(flat.get("stages", {}))
         table_path = flat.get("photometry_table_path")
-        if stages.get("photometry", False) and (table_path is None or not Path(table_path).expanduser().exists()):
+        if stages.get("photometry", False) and table_path is not None and not Path(table_path).expanduser().exists():
             logger.warning(f"Photometry table {table_path} not found; turning off the photometry stage.")
             stages["photometry"] = False
             flat["stages"] = stages

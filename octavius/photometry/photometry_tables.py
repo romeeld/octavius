@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import fsps
 
 # default libraries
+from importlib.resources import files
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -60,6 +61,10 @@ class FilterCurve(NamedTuple):
     lambda_eff: float
 
 
+# the Chabrier (2003) IMF table shipped with Octavius, used when no photometry_table_path is given
+DEFAULT_PHOTOMETRY_TABLE = Path(str(files("octavius").joinpath("data", "FSPS_Chabrier.hdf5")))
+
+
 def read_photometry_table(table_path: Path) -> PhotometryTable:
     """
     Parses the photometry .hdf5 file generated from generate_photometry_table(_from_sp). Returns:
@@ -75,12 +80,12 @@ def read_photometry_table(table_path: Path) -> PhotometryTable:
         logger.debug(f"Oversampling: {oversample}")
         logger.debug(f"Spectral Library: {spectral_library}")
 
-        table_version = tab.attrs["octavius_version"]
-        if table_version != __version__:
-            logger.warning(
-                f"Photometry table was generated with version {table_version}; you are running version {__version__}",
-                extra=SAME_ON_ALL_RANKS,
-            )
+        # the table depends on FSPS and its settings, not on the Octavius version that wrote it
+        logger.info(
+            f"Photometry table: FSPS {tab.attrs.get('fsps_version', 'unknown')}, spectral library "
+            f"{spectral_library}, IMF type {tab.attrs.get('imf', 'unknown')}",
+            extra=SAME_ON_ALL_RANKS,
+        )
 
         # SSP datasets
         ssp = tab["ssp"]  # top-level SSP group
@@ -114,7 +119,7 @@ def read_photometry_table(table_path: Path) -> PhotometryTable:
 
         # build PhotometryTable
         table = PhotometryTable(
-            spectra=spectra_dataset[:],
+            spectra=spectra_dataset[:].astype(np.float64),  # the bundled table stores them as float32
             mass_remaining=mass_dataset[:],
             ages=age_dataset[:],
             metallicities=metal_dataset[:],

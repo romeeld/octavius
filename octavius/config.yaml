@@ -62,7 +62,7 @@ properties:
 
 photometry:
   bands:                      ["sdss", "all", "v"]  # auto expands filters (e.g. "sdss" will give sdss_u, sdss_g etc)
-  photometry_table_path:      /path/to/photometry_table.hdf5
+  photometry_table_path:      # leave blank for the Chabrier (2003) IMF table shipped with Octavius
   extinction_law:             COMPOSITE
   viewing_axis:               Z
   use_dust:                   true
