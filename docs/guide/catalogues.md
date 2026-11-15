@@ -114,10 +114,17 @@ Crucially, membership mapping is extended to the constituent particles of the gr
 halo_22_gas_idx = catalogue.haloes.get_particle_indices(group_index=22, ptype="gas")
 ```
 
+Passing a list of groups returns their indices concatenated, together with offsets marking where each group starts:
+
+```python
+gas_idx, offsets = catalogue.haloes.get_particle_indices(group_index=[22, 23, 40], ptype="gas")
+halo_23_gas_idx = gas_idx[offsets[1] : offsets[2]]
+```
+
 This means any properties not in the catalogue can be recomputed by indexing the raw particle-level datasets directly from the snapshot.
 
 :::{note}
-`get_particle_indices()` and `get_galaxies()`(for haloes) can only be called for one group at a time.
+`get_galaxies()` and `get_subhaloes()` (for haloes) can only be called for one halo at a time.
 :::
 
 ## Accessing Simulation Information
