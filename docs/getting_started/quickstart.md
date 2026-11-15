@@ -90,7 +90,7 @@ The catalogues also store the list of particle indices for every object, and it 
 star_indices = catalogue.galaxies.get_particle_indices(ptype="star", group_index=2)
 
 # get the iron abundance of every gas particle in haloes 0, 5, and 17.
-iron_abundances = analyser.get_particle_data(name="fraction_Fe", ptype="gas", group_type='haloes', group_indices=[0, 5, 17])
+iron_abundances = analyser.get_particle_data(name="fraction_Fe", ptype="gas", group_type='haloes', group_index=[0, 5, 17])
 ```
 
 The Example Scripts section shows more detailed use cases.
